@@ -1,0 +1,47 @@
+app:
+  id: ""
+  name: "goplease-server"
+  version: "ognev-local"
+  env: dev
+
+db:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  name: goplease_local_dev
+  log_queries: true
+
+server:
+  host: localhost
+  port: 8080
+  api_base_path: api
+  addr: "http://localhost:8080/"
+
+email:
+  driver: smtp
+  from: "mail@gopl.dev"
+  smtp:
+    host: "sandbox.smtp.mailtrap.io"
+    port: 2525
+    username: "username"
+    password: "username"
+
+session:
+  duration_hours: 24
+  key: "key"
+
+tracing:
+  enabled: true
+  driver: log
+  uptrace_dsn: "https://2cXi2N117tAAR7ph-NVX3Q@api.uptrace.dev?grpc=4317"
+
+google_oauth:
+  client_id: "id"
+  client_secret:  "secret"
+
+github_oauth:
+  client_id: "id"
+  client_secret:  "secret"
+
+admins: ['019c3191-7083-7242-8ce1-2993ec4730c6', '019da1f0-5cf7-75d8-8e2a-b46b59b0f84f']
