@@ -15,22 +15,22 @@ const (
 	BasicMagicAttack ID = "basic_magic_attack"
 
 	// Tank
-	Phalanx    ID = "phalanx"
-	Provoke    ID = "provoke"
-	ShieldBash ID = "shield_bash"
-	SecondWind ID = "second_wind"
+	Phalanx     ID = "phalanx"
+	Provoke     ID = "provoke"
+	ShieldBash  ID = "shield_bash"
+	UndyingWill ID = "undying_will"
 
 	// warrior
 	BattleCry ID = "battle_cry"
 	Cleave    ID = "cleave"
-	Batter    ID = "batter"
+	PowerPush ID = "power_push"
 	Frenzy    ID = "frenzy"
 
 	// ranger
 	PiercingShot  ID = "piercing_shot"
 	HuntersMark   ID = "hunters_mark"
 	HamstringShot ID = "hamstring_shot"
-	CoverFire     ID = "cover_file"
+	CoverFire     ID = "cover_fire"
 
 	// rogue
 	ShadowStep  ID = "shadow_step"
@@ -118,11 +118,11 @@ var Abilities = map[ID]Ability{
 		Description: "Stuns the target for 1 turn.",
 		Range:       1, Cooldown: 3,
 	},
-	SecondWind: {
+	UndyingWill: {
 		Type:        Skill,
 		IsPassive:   true,
-		Name:        "Last Stand",
-		Description: "If HP falls below 1, gain +3 Shield instead of dying.",
+		Name:        "Undying Will",
+		Description: "When receiving fatal damage, prevent death: set HP to 1 and gain 3 Shield",
 		Range:       0, Cooldown: 5,
 	},
 
@@ -139,10 +139,10 @@ var Abilities = map[ID]Ability{
 		Description: "Attacks all enemies in front of you for base damage.",
 		Range:       1, Cooldown: 3,
 	},
-	Batter: {
+	PowerPush: {
 		Type:        Skill,
-		Name:        "Batter",
-		Description: "Deals 4 damage and pushes the target back 1 tile. If the target cannot be pushed, deals 6 damage instead.",
+		Name:        "Power Push",
+		Description: "Deals 3 damage and pushes the target back 1 tile. If the target cannot be pushed, deals 5 damage instead.",
 		Range:       1, Cooldown: 3,
 	},
 	Frenzy: {
@@ -163,7 +163,7 @@ var Abilities = map[ID]Ability{
 	HuntersMark: {
 		Type:        Skill,
 		Name:        "Hunter's Mark",
-		Description: "Deals 1 damage and marks target for 3 turns. Allies deal +2 damage to marked target.",
+		Description: "Marks target for 3 turns. Allies deal +1 damage to marked target.",
 		Range:       3, Cooldown: 4,
 	},
 	HamstringShot: {
@@ -217,7 +217,7 @@ var Abilities = map[ID]Ability{
 	TimeWarp: {
 		Type:        Spell,
 		Name:        "Time Warp",
-		Description: "Target ally or self gains +1 AP on their turn.",
+		Description: "Target ally or self gains +1 AP. At the end of their turn, their HP, Shield, and position are reverted to their state at the start of the turn.",
 		Range:       3, Cooldown: 5,
 	},
 	Purge: {

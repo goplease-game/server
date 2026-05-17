@@ -36,14 +36,22 @@ Rogue: 6/3/1/3 (-1 HP Point, +1 MP Point)
 Support: 9/2/3/2 (-1 ATK Point, +1 Ranged Point)
 */
 
-// TODO
+// TOOD
 //func (t Template) Validate() error {
-//	if t.HP < 3 || t.MovePoints < 1 || t.MovePoints > 3 || t.Attack < 1 {
+//	if t.HP < 3 || t.Attack < 1 || t.MovePoints < 1 || t.MovePoints > 3 {
 //		return errors.New("stats out of bounds")
 //	}
 //
-//	score := (t.HP-9)/3 + (t.Attack-3) + (t.MovePoints-2)
-//	if t.AttackRange > 1 {
+//	if t.AttackRange != 1 && t.AttackRange != 3 {
+//		return errors.New("attack range must be either 1 (Melee) or 3 (Ranged)")
+//	}
+//
+//	if (t.HP-9)%3 != 0 {
+//		return fmt.Errorf("HP must be modified in steps of 3 (current HP: %d)", t.HP)
+//	}
+//
+//	score := (t.HP-9)/3 + (t.Attack - 3) + (t.MovePoints - 2)
+//	if t.AttackRange == 3 {
 //		score += 1
 //	}
 //
@@ -66,7 +74,7 @@ var DefaultTemplates = []Template{
 			ab.Phalanx,
 			ab.Provoke,
 			ab.ShieldBash,
-			ab.SecondWind,
+			ab.UndyingWill,
 		},
 	},
 	{
@@ -79,7 +87,7 @@ var DefaultTemplates = []Template{
 			ab.BasicMeleeAttack,
 			ab.BattleCry,
 			ab.Cleave,
-			ab.Batter,
+			ab.PowerPush,
 			ab.Frenzy,
 		},
 	},
