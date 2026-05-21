@@ -12,8 +12,8 @@ All units start with a baseline set of characteristics:
 HP: 9
 ATK: 3
 Range: 1 (Melee)
-MP: 2
-In short 9/3/1/2
+MP: 3
+In short 9/3/1/3
 
 Balance Currency:
 To modify the base profile, units must trade "Weight Points." The total balance must always equal 0.
@@ -27,16 +27,16 @@ Constraints & Limits:
 Min HP: 3
 Min ATK: 1
 Min MP: 1
-Max MP: 3
+Max MP: 4
 
 Examples of balanced archetypes:
-Tank : 12/2/1/2 (+1 HP Point, -1 ATK Point)
-Ranger: 6/4/3/1 (-1 HP Point, -1 MP Point, +1 ATK Point, +1 Ranged Point)
-Rogue: 6/3/1/3 (-1 HP Point, +1 MP Point)
-Support: 9/2/3/2 (-1 ATK Point, +1 Ranged Point)
+Tank : 12/2/1/3 (+1 HP Point, -1 ATK Point)
+Ranger: 6/4/3/2 (-1 HP Point, -1 MP Point, +1 ATK Point, +1 Ranged Point)
+Rogue: 6/3/1/4 (-1 HP Point, +1 MP Point)
+Support: 9/2/3/3 (-1 ATK Point, +1 Ranged Point)
 */
 
-// TOOD
+// TODO
 //func (t Template) Validate() error {
 //	if t.HP < 3 || t.Attack < 1 || t.MovePoints < 1 || t.MovePoints > 3 {
 //		return errors.New("stats out of bounds")
@@ -67,7 +67,7 @@ var DefaultTemplates = []Template{
 		ID:          1,
 		Name:        "Bas",
 		Description: "An immovable wall who protects allies by absorbing damage, locking down enemies, and holding the front line at all costs.",
-		HP:          12, Attack: 2, AttackRange: 1, MovePoints: 2,
+		HP:          12, Attack: 2, AttackRange: 1, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
@@ -81,7 +81,7 @@ var DefaultTemplates = []Template{
 		ID:          2,
 		Name:        "Grit",
 		Description: "A fierce frontline brawler who thrives in the thick of battle, dealing heavy area damage and breaking enemy formations.",
-		HP:          6, Attack: 4, AttackRange: 1, MovePoints: 2,
+		HP:          6, Attack: 4, AttackRange: 1, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
@@ -95,7 +95,7 @@ var DefaultTemplates = []Template{
 		ID:          3,
 		Name:        "Fletch",
 		Description: "A long-range damage dealer specializing in picking off high-priority targets and providing suppressing cover fire from safety.",
-		HP:          6, Attack: 4, AttackRange: 3, MovePoints: 1,
+		HP:          6, Attack: 4, AttackRange: 3, MovePoints: 2,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicRangeAttack,
@@ -109,7 +109,7 @@ var DefaultTemplates = []Template{
 		ID:          4,
 		Name:        "Silver",
 		Description: "A highly mobile assassin designed to slip behind enemy lines and eliminate vulnerable targets with devastating backstabs.",
-		HP:          6, Attack: 3, AttackRange: 1, MovePoints: 3,
+		HP:          6, Attack: 3, AttackRange: 1, MovePoints: 4,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
@@ -123,7 +123,7 @@ var DefaultTemplates = []Template{
 		ID:          5,
 		Name:        "Mist",
 		Description: "A tactical spellcaster who manipulates time and space to control the battlefield, weaken enemies, and reposition units.",
-		HP:          9, Attack: 3, AttackRange: 3, MovePoints: 1,
+		HP:          9, Attack: 3, AttackRange: 3, MovePoints: 2,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMagicAttack,
@@ -137,7 +137,7 @@ var DefaultTemplates = []Template{
 		ID:          6,
 		Name:        "July",
 		Description: "A support and healer focused on keeping the team alive, removing negative effects, and sustaining allies through long battles.",
-		HP:          9, Attack: 2, AttackRange: 3, MovePoints: 2,
+		HP:          9, Attack: 2, AttackRange: 3, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMagicAttack,
