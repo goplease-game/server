@@ -30,13 +30,11 @@ func (p *Player) HasUnits(board *Board) bool {
 		return true
 	}
 
-	for col := 0; col < BoardColumns; col++ {
-		for row := 0; row < BoardRows; row++ {
-			u := board.UnitAt(col, row)
-			if u != nil && u.OwnerID == p.ID {
-				return true
-			}
+	for _, cell := range board.Cells {
+		if cell != nil && cell.Unit != nil && cell.Unit.OwnerID == p.ID {
+			return true
 		}
 	}
+
 	return false
 }

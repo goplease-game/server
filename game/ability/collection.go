@@ -8,16 +8,16 @@ const (
 	BasicMagicAttack ID = "basic_magic_attack"
 
 	// Tank
-	Phalanx     ID = "phalanx"
+	Fortify     ID = "fortify"
 	Provoke     ID = "provoke"
 	ShieldBash  ID = "shield_bash"
 	UndyingWill ID = "undying_will"
 
 	// warrior
-	BattleCry ID = "battle_cry"
-	Cleave    ID = "cleave"
-	PowerPush ID = "power_push"
-	Frenzy    ID = "frenzy"
+	BattleCry   ID = "battle_cry"
+	IdolihuSpin ID = "idolihu_spin"
+	PowerPush   ID = "power_push"
+	Frenzy      ID = "frenzy"
 
 	// ranger
 	PiercingShot  ID = "piercing_shot"
@@ -67,7 +67,7 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Strike",
-		Description: "Delivers direct blow to a nearby enemy.",
+		Description: "Delivers a direct blow to a nearby enemy.",
 		Cooldown:    0,
 		Range:       1,
 		Activation:  SelectEnemy,
@@ -78,9 +78,9 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Shoot",
-		Description: "Fires projectile at a distant target.",
+		Description: "Fires a projectile at a distant target.",
 		Cooldown:    0,
-		Range:       3,
+		Range:       4,
 		Activation:  SelectEnemy,
 		TargetMode:  TargetEnemies,
 		Effects:     Effects(effect.NewBasicAttack()),
@@ -89,19 +89,19 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Arcane Bolt",
-		Description: "Hurls bolt of arcane energy.",
+		Description: "Hurls a bolt of arcane energy.",
 		Cooldown:    0,
-		Range:       3,
+		Range:       4,
 		Activation:  SelectEnemy,
 		TargetMode:  TargetEnemies,
 		Effects:     Effects(effect.NewBasicAttack()),
 	},
 
 	// --- TANK ---
-	Phalanx: {
+	Fortify: {
 		Type:        Skill,
 		IsPassive:   false,
-		Name:        "Phalanx",
+		Name:        "Fortify",
 		Description: "You and adjacent allies gain +3 Shield. Shield decays by 1 at the start of each turn.",
 		Cooldown:    3,
 		Range:       0,
@@ -150,7 +150,7 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Battle Cry",
-		Description: "Grants +3 Attack to nearby allies. Bonus decays by 1 at the start of each turn.",
+		Description: "Nearby allies gain +3 Attack. The bonus decays by 1 at the start of each turn.",
 		Cooldown:    3,
 		TargetMode:  TargetAllies,
 		Activation:  Instant,
@@ -158,16 +158,15 @@ var Abilities = map[ID]Ability{
 		AreaRadius:  2,
 		Effects:     Effects(effect.NewStatusEffect(effect.DecayingAttack)),
 	},
-	Cleave: {
+	IdolihuSpin: {
 		Type:        Skill,
 		IsPassive:   false,
-		Name:        "Cleave",
-		Description: "Swings in a wide arc, hitting all enemies in front for base damage.",
+		Name:        "IDOLIHU! Spin",
+		Description: "Strikes all adjacent enemies in a single sweeping motion.",
 		Cooldown:    3,
-		Range:       1,
 		TargetMode:  TargetEnemies,
-		Activation:  SelectAny,
-		Area:        AreaArc,
+		Activation:  Instant,
+		Area:        AreaCircle,
 		AreaRadius:  1,
 		Effects:     Effects(effect.NewBasicAttack()),
 	},
@@ -178,8 +177,8 @@ var Abilities = map[ID]Ability{
 		Description: "Deals 3 damage and pushes the target back 1 tile. If the target cannot be pushed, deals 5 damage instead.",
 		Cooldown:    3,
 		Range:       1,
-		TargetMode:  TargetAny,
-		Activation:  SelectAny,
+		TargetMode:  TargetEnemies,
+		Activation:  SelectEnemy,
 		Effects:     Effects(effect.NewAttack(3), effect.NewMove(effect.MovePush, 1)),
 		// TODO Custom handler (Attack(5) if cannot move)
 	},
@@ -187,7 +186,7 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   true,
 		Name:        "Frenzy",
-		Description: "Gains +2 Attack if there are 2 or more enemies within 2 cells.",
+		Description: "Gain +2 Attack if there are 2 or more enemies within 2 tiles.",
 		// TODO event bus
 	},
 
@@ -198,17 +197,17 @@ var Abilities = map[ID]Ability{
 		Name:        "Piercing Shot",
 		Description: "Fires a piercing shot that deals attack damage to all enemies in a straight line.",
 		Cooldown:    3,
-		Range:       3,
 		TargetMode:  TargetEnemies,
 		Activation:  SelectAny,
 		Area:        AreaLine,
+		AreaRadius:  4,
 		Effects:     Effects(effect.NewBasicAttack()),
 	},
 	HuntersMark: {
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Hunter's Mark",
-		Description: "Marks target for 3 turns. Allies deal +1 damage to marked target.",
+		Description: "Marks the target for 3 turns. Allies deal +1 damage to the marked target.",
 		Cooldown:    4,
 		Range:       3,
 		TargetMode:  TargetEnemies,
@@ -219,7 +218,7 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Hamstring Shot",
-		Description: "Deals 2 damage and reduces target's Move Range to 1 for next turn.",
+		Description: "Deals 2 damage and reduces the target's Move Range to 1 until the end of its next turn.",
 		Cooldown:    3,
 		Range:       3,
 		TargetMode:  TargetEnemies,
@@ -241,7 +240,7 @@ var Abilities = map[ID]Ability{
 		Type:        Spell,
 		IsPassive:   false,
 		Name:        "Shadow Step",
-		Description: "Teleport to target cell and gain +2 Attack until the end of your next turn.",
+		Description: "Teleport to a target cell and gain +2 Attack until the end of your next turn.",
 		Cooldown:    3,
 		Range:       4,
 		Activation:  SelectFreeCell,
@@ -251,7 +250,7 @@ var Abilities = map[ID]Ability{
 		Type:        Skill,
 		IsPassive:   false,
 		Name:        "Gang Up",
-		Description: "Executes a melee attack. Deals +2 bonus damage if an ally is on the opposite side of the target",
+		Description: "Executes a melee attack. Deals +2 damage if an ally is on the opposite side of the target.",
 		Cooldown:    3,
 		Range:       1,
 		TargetMode:  TargetEnemies,
@@ -295,7 +294,7 @@ var Abilities = map[ID]Ability{
 		Type:        Spell,
 		IsPassive:   false,
 		Name:        "Time Warp",
-		Description: "Target ally or self gains +1 AP. At the end of that unit’s turn, their HP, Shield, and position are restored to their state at the start of that turn.",
+		Description: "Target ally or self gains +1 AP. At the end of that unit’s turn, its HP, Shield, and position are restored to their state at the start of the turn.",
 		Cooldown:    5,
 		Range:       3,
 		TargetMode:  TargetAlliesAndSelf,
@@ -318,7 +317,7 @@ var Abilities = map[ID]Ability{
 		Type:        Spell,
 		IsPassive:   true,
 		Name:        "Arcane Chaos",
-		Description: "At the end of your turn, gain bonuses based on actions taken during the turn:\n- If you did not move: gain +1 Movement Range next turn\n- If no enemies were within 3 tiles: gain +1 Attack Range next turn\n- If you took no damage: restore 1 HP next turn\n- If you took damage: gain 1 Shield\n\nIf 3 or more conditions are met, also gain +1 Attack next turn.",
+		Description: "At the end of your turn, gain bonuses based on actions taken during the turn:\n- If you did not move: gain +1 Movement Range next turn\n- If no enemies were within 3 tiles: gain +1 Attack Range next turn\n- If you took no damage: restore 1 HP next turn\n- If you took damage: gain 1 Shield\n\nIf 3  conditions are met, also gain +1 Attack next turn.",
 		Effects:     nil, // TODO
 	},
 

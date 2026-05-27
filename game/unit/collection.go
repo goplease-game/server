@@ -71,7 +71,7 @@ var DefaultTemplates = []Template{
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
-			ab.Phalanx,
+			ab.Fortify,
 			ab.Provoke,
 			ab.ShieldBash,
 			ab.UndyingWill,
@@ -86,7 +86,7 @@ var DefaultTemplates = []Template{
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
 			ab.BattleCry,
-			ab.Cleave,
+			ab.IdolihuSpin,
 			ab.PowerPush,
 			ab.Frenzy,
 		},

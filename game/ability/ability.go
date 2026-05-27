@@ -29,9 +29,7 @@ type AreaType string
 
 const (
 	AreaLine   AreaType = "line"
-	AreaCone   AreaType = "cone"
 	AreaCircle AreaType = "circle"
-	AreaArc    AreaType = "arc"
 )
 
 type TargetMode string

@@ -18,14 +18,3 @@ func (b *Bot) TakeTurn(room *game.Room, p *game.Player) {
 
 	// TODO
 }
-
-func findFreeCell(room *game.Room, minRow, maxRow int) (col, row int, ok bool) {
-	for r := minRow; r <= maxRow; r++ {
-		for c := 0; c < game.BoardColumns; c++ {
-			if room.Board.UnitAt(c, r) == nil {
-				return c, r, true
-			}
-		}
-	}
-	return 0, 0, false
-}

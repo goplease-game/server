@@ -5,6 +5,7 @@ import (
 
 	"github.com/ognev-dev/goplease/app/ds"
 	"github.com/ognev-dev/goplease/game"
+	"github.com/ognev-dev/goplease/game/ability"
 	"github.com/ognev-dev/goplease/game/match"
 )
 
@@ -19,6 +20,7 @@ const (
 	OppDisconnectedAction Action = "opp_disconnected"
 	CancelMatchAction     Action = "cancel_match"
 	MatchCancelledAction  Action = "match_canceled"
+	UseAbility            Action = "use_ability"
 	ErrorAction           Action = "error"
 )
 
@@ -92,6 +94,9 @@ func (gs *GameServer) onMessage(c *Client, msg InMessage) {
 	case PlaceUnitAction:
 		gs.handlePlaceUnit(c, msg.Data)
 
+	case UseAbility:
+		gs.useAbility(c, msg.Data)
+
 	case "end_turn": // TODO
 		gs.handleEndTurn(c)
 
@@ -130,6 +135,12 @@ type placeUnitReq struct {
 	Row    int   `json:"row"`
 }
 
+type useAbilityReq struct {
+	UnitID    ds.ID          `json:"unit_id"`
+	AbilityID ability.ID     `json:"ability_id"`
+	Target    *game.HexCoord `json:"target,omitempty"`
+}
+
 func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
 	var req placeUnitReq
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -153,6 +164,42 @@ func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
 	}
 
 	// TODO response
+}
+
+func (gs *GameServer) useAbility(c *Client, raw json.RawMessage) {
+	var req useAbilityReq
+	if err := json.Unmarshal(raw, &req); err != nil {
+		c.Send(errMsg("invalid use_ability payload"))
+		return
+	}
+
+	room := gs.matchmaker.Room(c.RoomID)
+	if room == nil {
+		c.Send(errMsg("room not found"))
+		return
+	}
+
+	unit, err := room.ActingUnit()
+	if err != nil {
+		c.Send(errMsg(err.Error()))
+		return
+	}
+
+	err = unit.ValidateAbilityUse(req.AbilityID)
+	if err != nil {
+		return
+	}
+
+	// find ability
+	ab, ok := ability.Abilities[req.AbilityID]
+	if !ok {
+		c.Send(errMsg("unknown ability"))
+		return
+	}
+
+	_ = ab
+
+	// pass ability down to ability execution pipeline
 }
 
 func (gs *GameServer) handleEndTurn(c *Client) {
@@ -197,20 +244,24 @@ func errMsg(msg string) OutMessage {
 }
 
 func newGamePayload(room *game.Room, myIndex int) game.NewGamePayload {
-	var preparedBoard game.Board
+	preparedBoard := game.NewBoard()
 
-	// set safe-zone for both players
-	for r := 0; r < game.BoardRows; r++ {
-		for c := 0; c < game.BoardColumns; c++ {
-			cell := *room.Board[r][c]
-			if myIndex == 0 {
-				cell.IsSafeZone = c < game.SafeZoneSize
-			} else {
-				cell.IsSafeZone = c >= (game.BoardColumns - game.SafeZoneSize)
-			}
-
-			preparedBoard[r][c] = &cell
+	for coord, cell := range room.Board.Cells {
+		if cell == nil {
+			continue
 		}
+
+		c := *cell
+
+		// Convert axial -> visual column
+		col := coord.Q + coord.R/2
+		if myIndex == 0 {
+			c.IsSafeZone = col < game.SafeZoneSize
+		} else {
+			c.IsSafeZone = col >= (game.BoardColumns - game.SafeZoneSize)
+		}
+
+		preparedBoard.Cells[coord] = &c
 	}
 
 	return game.NewGamePayload{

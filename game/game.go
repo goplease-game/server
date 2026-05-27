@@ -21,7 +21,7 @@ type NewGamePayload struct {
 	RoomID   string  `json:"room_id"`
 	Phase    Phase   `json:"phase"`
 	IsMyTurn bool    `json:"is_my_turn"`
-	Board    Board   `json:"board"`
+	Board    *Board  `json:"board"`
 	Player   *Player `json:"player"`
 	Opponent string  `json:"opponent"`
 }

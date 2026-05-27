@@ -1,5 +1,7 @@
 package effect
 
+import "github.com/ognev-dev/goplease/app/ds"
+
 type StatusType string
 type StatusAlignment string
 
@@ -27,6 +29,13 @@ type Status struct {
 	Duration     int             `json:"duration,omitempty"`
 	InitialValue int             `json:"initial_value,omitempty"`
 	Alignment    StatusAlignment `json:"alignment"`
+}
+
+type UnitStatus struct {
+	UnitID   ds.ID   `json:"unit_id"`
+	Duration int     `json:"duration"`
+	Value    int     `json:"value"`
+	Status   *Status `json:"status"`
 }
 
 var debuffWardStatus = &Status{

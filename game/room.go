@@ -29,17 +29,15 @@ type TurnResult struct {
 type Room struct {
 	mu sync.Mutex
 
-	ID         string
-	Board      Board
-	Players    [2]*Player
-	UnitsQueue []unit.Unit
+	ID              string
+	Board           *Board
+	Players         [2]*Player
+	UnitsQueue      []*unit.Unit
+	ActingUnitIndex int
 
 	CurrentTurn  int
 	ActivePlayer int // 0 or 1 whose turn is
 	Phase        Phase
-
-	// Pending placements for current turn (committed on EndTurn)
-	pendingPlacements []PlacementAction
 }
 
 func NewRoom(p1, p2 *Player) *Room {
@@ -74,27 +72,6 @@ func (r *Room) PlaceUnit(playerID ds.ID, place PlacementAction) error {
 	return nil
 }
 
-// RecallUnit removes a placed unit back to hand (only during placement phase).
-func (r *Room) RecallUnit(playerID ds.ID, row, col int) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	p, idx := r.playerByID(playerID)
-	if p == nil {
-		return errors.New("unknown player")
-	}
-	if r.Phase != PhaseUnitPlacement || r.ActivePlayer != idx {
-		return errors.New("not your turn to place")
-	}
-	u := r.Board.UnitAt(row, col)
-	if u == nil || u.OwnerID != playerID {
-		return errors.New("no owned unit at that cell")
-	}
-	r.Board.ClearUnit(row, col)
-
-	return nil
-}
-
 // ─── End Turn (triggers simulation) ──────────────────────────────────────────
 
 // EndTurn ends the current player's turn
@@ -121,4 +98,12 @@ func (r *Room) playerByID(id ds.ID) (*Player, int) {
 		}
 	}
 	return nil, -1
+}
+
+func (r *Room) ActingUnit() (*unit.Unit, error) {
+	if r.ActingUnitIndex >= 0 && r.ActingUnitIndex < len(r.UnitsQueue) {
+		return r.UnitsQueue[r.ActingUnitIndex], nil
+	}
+
+	return nil, errors.New("invalid unit index")
 }

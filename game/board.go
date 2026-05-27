@@ -1,36 +1,85 @@
 package game
 
-import "github.com/ognev-dev/goplease/game/unit"
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+
+	"github.com/ognev-dev/goplease/game/unit"
+)
 
 const (
-	BoardRows    = 8
+	BoardRows    = 10
 	BoardColumns = 16
 	SafeZoneSize = 2 // columns at each end that are "safe zones"
 )
 
-func NewBoard() Board {
-	b := Board{}
-	for r := range BoardRows {
-		for c := range BoardColumns {
-			b[r][c] = &BoardCell{}
+type HexCoord struct {
+	Q int `json:"q"`
+	R int `json:"r"`
+}
+
+func (h HexCoord) Key() string {
+	return strconv.Itoa(h.Q) + ":" + strconv.Itoa(h.R)
+}
+
+type BoardCell struct {
+	Coord      HexCoord   `json:"coord"`
+	Unit       *unit.Unit `json:"unit,omitempty"`
+	IsSafeZone bool       `json:"is_safe_zone,omitzero"`
+}
+
+type Board struct {
+	Cells BoardCells `json:"cells"`
+}
+
+type BoardCells map[HexCoord]*BoardCell
+
+func (b BoardCells) MarshalJSON() ([]byte, error) {
+	type Alias BoardCell
+
+	out := make(map[string]*BoardCell, len(b))
+	for coord, cell := range b {
+		if cell == nil {
+			continue
+		}
+
+		key := fmt.Sprintf("%d:%d", coord.Q, coord.R)
+
+		out[key] = cell
+	}
+
+	return json.Marshal(out)
+}
+
+func NewBoard() *Board {
+	b := &Board{
+		Cells: make(map[HexCoord]*BoardCell),
+	}
+
+	for r := 0; r < BoardRows; r++ {
+		qOffset := r / 2
+		for q := -qOffset; q < BoardColumns-qOffset; q++ {
+			coord := HexCoord{
+				Q: q,
+				R: r,
+			}
+
+			b.Cells[coord] = &BoardCell{
+				Coord: coord,
+			}
 		}
 	}
 
 	return b
 }
 
-// Board is a 2D grid of a game board
-type Board [BoardRows][BoardColumns]*BoardCell
-
-func (b *Board) CellAt(row, col int) *BoardCell {
-	if !b.InBounds(row, col) {
-		return nil
-	}
-	return b[row][col]
+func (b *Board) CellAt(coord HexCoord) *BoardCell {
+	return b.Cells[coord]
 }
 
-func (b *Board) UnitAt(row, col int) *unit.Unit {
-	cell := b.CellAt(row, col)
+func (b *Board) UnitAt(coord HexCoord) *unit.Unit {
+	cell := b.CellAt(coord)
 	if cell == nil {
 		return nil
 	}
@@ -38,19 +87,18 @@ func (b *Board) UnitAt(row, col int) *unit.Unit {
 	return cell.Unit
 }
 
-func (b *Board) PlaceUnit(row, col int, u *unit.Unit) bool {
-	cell := b.CellAt(row, col)
+func (b *Board) PlaceUnit(coord HexCoord, u *unit.Unit) bool {
+	cell := b.CellAt(coord)
 	if cell == nil {
 		return false
 	}
 
 	cell.Unit = u
-
 	return true
 }
 
-func (b *Board) ClearUnit(row, col int) {
-	cell := b.CellAt(row, col)
+func (b *Board) ClearUnit(coord HexCoord) {
+	cell := b.CellAt(coord)
 	if cell != nil {
 		cell.Unit = nil
 	}
@@ -75,9 +123,4 @@ func PlacementZone(playerIndex int) (minRow, maxRow int) {
 		return 0, SafeZoneSize - 1
 	}
 	return BoardRows - SafeZoneSize, BoardRows - 1
-}
-
-type BoardCell struct {
-	Unit       *unit.Unit `json:"unit"`
-	IsSafeZone bool       `json:"is_safe_zone"`
 }
