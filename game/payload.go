@@ -14,6 +14,11 @@ type UnitPlacedPayload struct {
 	TemplateID int      `json:"template_id"`
 }
 
+type UnitMovedPayload struct {
+	Coord  HexCoord `json:"coord"`
+	UnitID ds.ID    `json:"unit_id"`
+}
+
 type PlayUnitPayload struct {
 	UnitID ds.ID `json:"unit_id"`
 }

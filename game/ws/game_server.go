@@ -19,8 +19,10 @@ const (
 	SearchingOppAction    Action = "searching_opp"
 	PlaceUnitAction       Action = "place_unit"
 	UnitPlacedAction      Action = "unit_placed"
+	UnitMovedAction       Action = "unit_moved"
+	EndTurnAction         Action = "end_turn"
 	PlayUnitAction        Action = "play_unit"
-	ApplyState            Action = "apply_state"
+	ApplyStateAction      Action = "apply_state"
 	NewRound              Action = "new_round"
 	OppDisconnectedAction Action = "opp_disconnected"
 	CancelMatchAction     Action = "cancel_match"
@@ -102,17 +104,20 @@ func (gs *GameServer) onMessage(c *Client, msg InMessage) {
 	case UnitPlacedAction:
 		gs.handlePlaceUnit(c, msg.Data)
 
+	case UnitMovedAction:
+		gs.handleUnitMoved(c, msg.Data)
+
+	case EndTurnAction:
+		gs.handleEndTurn(c)
+
 	case UseAbility:
 		gs.useAbility(c, msg.Data)
-
-	case "end_turn": // TODO
-		gs.handleEndTurn(c)
 
 	default:
 		c.Send(OutMessage{
 			Action: ErrorAction,
 			Data: ErrorResponse{
-				Message: "unknown action: " + string(msg.Action),
+				Message: "[server] unknown action: " + string(msg.Action),
 			},
 		})
 	}
@@ -165,8 +170,13 @@ func (gs *GameServer) advanceGameLoop(ar *game.Arena) {
 func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 	activeUnit := ar.ActingUnit()
 	if activeUnit == nil {
-		// Queue exhausted — start next round.
-		gs.startNewRound(ar)
+		// Queue exhausted — check if players have units in hand.
+		if ar.Players[0].HasUnitsInHand() || ar.Players[1].HasUnitsInHand() {
+			ar.Phase = game.PlacementPhase
+			gs.runPlacementPhase(ar)
+		} else {
+			gs.startNewRound(ar)
+		}
 		return
 	}
 
@@ -179,7 +189,6 @@ func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 		Action: PlayUnitAction,
 		Data:   game.PlayUnitPayload{UnitID: activeUnit.ID},
 	})
-
 	gs.sendToOpponent(ar, owner.ID, OutMessage{Action: WaitingForOpponent})
 }
 
@@ -206,9 +215,12 @@ func (gs *GameServer) startNewRound(ar *game.Arena) {
 
 	for _, u := range ar.UnitsQueue {
 		u.CurrentAP = u.BaseAP
+		u.CurrentMP = u.BaseMP
 	}
 	if len(ar.UnitsQueue) > 0 {
 		ar.ActiveUnitID = ar.UnitsQueue[0].ID
+	} else {
+		ar.ActiveUnitID = ds.NilID
 	}
 
 	if ar.UnitsPerPlacementPhase > 1 {
@@ -218,7 +230,6 @@ func (gs *GameServer) startNewRound(ar *game.Arena) {
 	ar.Players[1].UnitsPlacedThisRound = 0
 
 	gs.hub.Broadcast(ar.ID, OutMessage{Action: NewRound})
-
 	gs.advanceGameLoop(ar)
 }
 
@@ -274,6 +285,34 @@ func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
 	gs.advanceGameLoop(ar)
 }
 
+func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
+	var req game.UnitMovedPayload
+	if err := json.Unmarshal(raw, &req); err != nil {
+		c.Send(errMsg("invalid unit_moved payload"))
+		return
+	}
+
+	ar := gs.matchmaker.Arena(c.ArenaID)
+	if ar == nil {
+		c.Send(errMsg("arena not found"))
+		return
+	}
+
+	err := ar.MoveUnit(req.UnitID, req.Coord, c.PlayerID)
+	if err != nil {
+		c.Send(errMsg(err.Error()))
+		return
+	}
+
+	gs.sendToOpponent(ar, c.PlayerID, OutMessage{
+		Action: UnitMovedAction,
+		Data: game.UnitMovedPayload{
+			UnitID: req.UnitID,
+			Coord:  req.Coord,
+		},
+	})
+}
+
 func (gs *GameServer) useAbility(c *Client, raw json.RawMessage) {
 	var req useAbilityReq
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -312,40 +351,24 @@ func (gs *GameServer) useAbility(c *Client, raw json.RawMessage) {
 }
 
 func (gs *GameServer) handleEndTurn(c *Client) {
-	room := gs.matchmaker.Arena(c.ArenaID)
-	if room == nil {
-		c.Send(errMsg("room not found"))
+	ar := gs.matchmaker.Arena(c.ArenaID)
+	if ar == nil {
+		c.Send(errMsg("arena not found"))
 		return
 	}
 
-	//result, err := room.EndTurn(c.PlayerID)
-	//if err != nil {
-	//	c.Send(errMsg(err.Error()))
-	//	return
-	//}
+	states, err := ar.EndTurn(c.PlayerID)
+	if err != nil {
+		c.Send(errMsg(err.Error()))
+		return
+	}
 
-	// Broadcast simulation events to both players.
-	//gs.hub.Broadcast(room.ID, OutMessage{
-	//	Action: "turn_result",
-	//	Data:   result,
-	//})
+	if len(states) > 0 {
+		data, _ := json.Marshal(states)
+		gs.hub.Broadcast(ar.ID, OutMessage{Action: ApplyStateAction, Data: data})
+	}
 
-	//if result.IsOver {
-	//	gs.hub.Broadcast(room.ID, OutMessage{
-	//		Action: "game_over",
-	//		Data: map[string]any{
-	//			"winner": result.Winner,
-	//			"reason": result.Reason,
-	//		},
-	//	})
-	//	gs.matchmaker.CloseRoom(room.ID)
-	//	return
-	//}
-
-	// TODO
-
-	// If the next active player is a bot, trigger its turn automatically.
-	gs.matchmaker.MaybeTriggerBot(room)
+	gs.advanceGameLoop(ar)
 }
 
 func errMsg(msg string) OutMessage {

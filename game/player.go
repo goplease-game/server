@@ -53,3 +53,7 @@ func (p *Player) PopUnitFromHand(templateID int) *Unit {
 
 	return nil
 }
+
+func (p *Player) HasUnitsInHand() bool {
+	return len(p.Units) > 0
+}

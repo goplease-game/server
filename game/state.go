@@ -1,6 +1,7 @@
 package game
 
 import (
+	"github.com/ognev-dev/goplease/app/ds"
 	"github.com/ognev-dev/goplease/game/ability"
 	"github.com/ognev-dev/goplease/game/ability/status"
 )
@@ -8,7 +9,7 @@ import (
 // ApplyState represents a single, atomic state mutation applied to a unit or player.
 // Sequential execution of these states forms the visual timeline on the client side.
 type ApplyState struct {
-	ToUnitID string `json:"to_unit_id,omitempty"`
+	ToUnitID ds.ID `json:"to_unit_id,omitempty"`
 
 	SetPhantomAP *int `json:"set_phantom_ap,omitempty"`
 

@@ -20,6 +20,17 @@ func (h HexCoord) Key() string {
 	return strconv.Itoa(h.Q) + ":" + strconv.Itoa(h.R)
 }
 
+func (h HexCoord) Distance(to HexCoord) int {
+	abs := func(x int) int {
+		if x < 0 {
+			return -x
+		}
+		return x
+	}
+
+	return (abs(h.Q-to.Q) + abs(h.Q+h.R-to.Q-to.R) + abs(h.R-to.R)) / 2
+}
+
 type BoardCell struct {
 	Coord          HexCoord `json:"coord"`
 	Unit           *Unit    `json:"unit,omitempty"`
