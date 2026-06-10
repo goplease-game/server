@@ -9,7 +9,7 @@ import (
 // ApplyState represents a single, atomic state mutation applied to a unit or player.
 // Sequential execution of these states forms the visual timeline on the client side.
 type ApplyState struct {
-	ToUnitID ds.ID `json:"to_unit_id,omitempty"`
+	ToUnitID ds.ID `json:"to_unit_id,omitzero"`
 
 	SetPhantomAP *int `json:"set_phantom_ap,omitempty"`
 
@@ -73,4 +73,19 @@ func (s *ApplyStates) With(state ApplyStates) {
 
 func (s *ApplyStates) IsEmpty() bool {
 	return len(s.Global) == 0 && len(s.Opponent) == 0
+}
+
+func (s *ApplyStates) HasSkipTurn() bool {
+	for _, st := range s.Self {
+		if st.SkipTurn {
+			return true
+		}
+	}
+	for _, st := range s.Global {
+		if st.SkipTurn {
+			return true
+		}
+	}
+
+	return false
 }

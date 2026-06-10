@@ -11,11 +11,6 @@ import (
 	"github.com/ognev-dev/goplease/game/ability/status"
 )
 
-const (
-	UnitsPerPlacementPhase     = 2
-	MaxPhantomAPPerUnitPerTurn = 3
-)
-
 // Arena holds the full state of one match.
 type Arena struct {
 	mu sync.Mutex
@@ -233,8 +228,7 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 			err = fmt.Errorf("not your turn")
 			return
 		}
-		a.advanceActiveUnit()
-		return
+		return // queue exhausted — advanceGameLoop will handle it
 	}
 
 	u := a.ActingUnit()
@@ -288,19 +282,12 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 }
 
 func (a *Arena) advanceActiveUnit() {
-	if a.ActiveUnitID.IsNil() {
-		if len(a.UnitsQueue) > 0 {
-			a.ActiveUnitID = a.UnitsQueue[0].ID
-		}
-		return
-	}
-
 	for i, u := range a.UnitsQueue {
 		if u.ID == a.ActiveUnitID {
 			if i+1 < len(a.UnitsQueue) {
 				a.ActiveUnitID = a.UnitsQueue[i+1].ID
 			} else {
-				a.ActiveUnitID = ds.NilID // queue exhausted — triggers new round
+				a.ActiveUnitID = ds.NilID
 			}
 			return
 		}
@@ -328,17 +315,15 @@ func (a *Arena) ShouldUnitAt(pos HexCoord) (*Unit, error) {
 func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplyStates, err error) {
 	u := a.ActingUnit()
 	if u == nil {
-		err = errors.New("no acting unit")
-		return
+		return ApplyStates{}, fmt.Errorf("no acting unit")
 	}
 	if u.OwnerID != playerID {
-		err = errors.New("not your turn")
-		return
+		return ApplyStates{}, fmt.Errorf("not your turn")
 	}
 
-	ab, ok := ability.Abilities[req.AbilityID]
-	if !ok {
-		err = fmt.Errorf("unknown ability: %s", req.AbilityID)
+	ab := ability.ByID(req.AbilityID)
+	err = a.ValidateAbilityUse(u, ab, req.Target)
+	if err != nil {
 		return
 	}
 
@@ -384,6 +369,10 @@ func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplySt
 		return state, err
 	}
 	state.With(handlerStates)
+	state.ToOpp(ApplyState{
+		ToUnitID: u.ID,
+		UseAbility: new(req),
+	})
 
 	u.SetCooldown(ab.ID, ab.Cooldown)
 
@@ -443,36 +432,49 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 
 	if target.CurrentHP <= 0 {
 		target.IsDead = true
-		state.With(triggers.SomebodyJustExpectedlyDied(target))
+		state.With(triggers.SomebodyJustExpectedlyDied(a, target))
 
 		if target.IsDead {
-			if a.ActiveUnitID == target.ID {
-				a.ActiveUnitID = ds.NilID
-			}
 			a.RemoveUnitFromQueue(target.ID)
 			state.ToAll(ApplyState{IsDead: true, ToUnitID: target.ID})
 
 			// Recalculate after unit is removed from queue so counts are correct.
-			a.RecalculatePhantomAP()
-			state.ToSelf(ApplyState{SetPhantomAP: new(a.Players[0].PhantomAP)})
+			state.With(a.RecalculatePhantomAP())
 		}
 	}
 
 	return
 }
 
+// RemoveUnitFromQueue removes a dead unit and advances ActiveUnitID if needed.
 func (a *Arena) RemoveUnitFromQueue(unitID ds.ID) {
+	removedIdx := -1
 	for i, u := range a.UnitsQueue {
 		if u.ID == unitID {
+			removedIdx = i
 			a.UnitsQueue = append(a.UnitsQueue[:i], a.UnitsQueue[i+1:]...)
 			break
 		}
+	}
+
+	if removedIdx < 0 {
+		return
+	}
+
+	if a.ActiveUnitID != unitID {
+		return
+	}
+
+	if removedIdx < len(a.UnitsQueue) {
+		a.ActiveUnitID = a.UnitsQueue[removedIdx].ID
+	} else {
+		a.ActiveUnitID = ds.NilID
 	}
 }
 
 // RecalculatePhantomAP recalculates the Phantom AP pool for both players.
 // Phantom AP = max(0, enemy living units - friendly living units).
-func (a *Arena) RecalculatePhantomAP() {
+func (a *Arena) RecalculatePhantomAP() (state ApplyStates) {
 	counts := [2]int{}
 	for i, p := range a.Players {
 		for _, u := range a.UnitsQueue {
@@ -489,6 +491,11 @@ func (a *Arena) RecalculatePhantomAP() {
 		}
 		a.Players[i].PhantomAP = delta
 	}
+
+	state.ToSelf(ApplyState{SetPhantomAP: new(a.Players[a.ActivePlayer].PhantomAP)})
+	state.ToOpp(ApplyState{SetPhantomAP: new(a.Players[1-a.ActivePlayer].PhantomAP)})
+
+	return state
 }
 
 func (a *Arena) AlliesInRange(u *Unit, radius int) []*Unit {
@@ -579,4 +586,82 @@ func (a *Arena) CellOccupied(at HexCoord) (ok bool) {
 	}
 
 	return c.Unit != nil
+}
+
+func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *HexCoord) error {
+	 err := caster.ValidateAbilityUse(ab.ID)
+	 if err != nil {
+		return err
+	}
+
+	if ab.IsPassive {
+		return fmt.Errorf("ability %s is passive and cannot be activated", ab.ID)
+	}
+
+	if !ab.IsPassive && caster.CurrentAP < 1 {
+		player, _ := a.PlayerByID(caster.OwnerID)
+		if player == nil || player.PhantomAP < 1 {
+			return fmt.Errorf("not enough AP")
+		}
+	}
+
+	if ab.Activation != ability.Instant && targetAt == nil {
+		return fmt.Errorf("ability %s requires a target", ab.ID)
+	}
+
+	if targetAt == nil || ab.Activation == ability.Instant {
+		return nil
+	}
+
+	rangeN := ab.Range
+	if ab.Area != "" {
+		rangeN = ab.AreaRadius
+	}
+
+	if caster.Pos.Distance(*targetAt) > rangeN {
+		return fmt.Errorf("target out of range: distance %d, range %d",
+			caster.Pos.Distance(*targetAt), rangeN)
+	}
+
+	target := a.UnitAt(*targetAt)
+
+	switch ab.TargetMode {
+	case ability.TargetEnemies, ability.TargetEnemiesAndSelf:
+		if target == nil {
+			return fmt.Errorf("ability %s: no unit at target cell", ab.ID)
+		}
+		if target.OwnerID == caster.OwnerID && ab.TargetMode == ability.TargetEnemies {
+			return fmt.Errorf("ability %s: cannot target ally", ab.ID)
+		}
+
+	case ability.TargetAllies, ability.TargetAlliesAndSelf:
+		if target == nil {
+			return fmt.Errorf("ability %s: no unit at target cell", ab.ID)
+		}
+		if target.OwnerID != caster.OwnerID {
+			return fmt.Errorf("ability %s: cannot target enemy", ab.ID)
+		}
+
+	case ability.TargetSelf:
+		if target == nil || target.ID != caster.ID {
+			return fmt.Errorf("ability %s: must target self", ab.ID)
+		}
+
+	case ability.TargetAny:
+		if target == nil {
+			return fmt.Errorf("ability %s: no unit at target", ab.ID)
+		}
+
+	case "": // no target mode — free cell or AOE, no unit required
+	}
+
+	// Activation-specific checks
+	switch ab.Activation {
+	case ability.SelectFreeCell:
+		if target != nil {
+			return fmt.Errorf("ability %s: target cell is occupied", ab.ID)
+		}
+	}
+
+	return nil
 }

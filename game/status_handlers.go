@@ -7,13 +7,13 @@ import (
 )
 
 type statusHandler struct {
-	onApply              func(from, to *Unit, v status.Value) ApplyStates
-	onRemove             func(u *Unit, v status.Value) ApplyStates
-	onUnitAttacked       func(dmg *int, v status.Value)
-	onTurnStart          func(u *Unit, v status.Value) ApplyStates
-	onTurnEnd            func(u *Unit, v status.Value) ApplyStates
-	onOtherStatusApplied func(from, to *Unit, applied *status.Value, v status.Value) ApplyStates
-	mutate               func(v *status.Value, from, to *Unit)
+	onApply              func(a *Arena, from, to *Unit, v status.Value) ApplyStates
+	onRemove             func(a *Arena, u *Unit, v status.Value) ApplyStates
+	onUnitAttacked       func(a *Arena, dmg *int, v status.Value)
+	onTurnStart          func(a *Arena, u *Unit, v status.Value) ApplyStates
+	onTurnEnd            func(a *Arena, u *Unit, v status.Value) ApplyStates
+	onOtherStatusApplied func(a *Arena, from, to *Unit, applied *status.Value, v status.Value) ApplyStates
+	mutate               func(a *Arena, v *status.Value, from, to *Unit)
 }
 
 var statusHandlers = map[status.Type]*statusHandler{
@@ -30,7 +30,7 @@ var statusHandlers = map[status.Type]*statusHandler{
 }
 
 var provokedSH = &statusHandler{
-	mutate: func(v *status.Value, from, to *Unit) {
+	mutate: func(_ *Arena, v *status.Value, from, _ *Unit) {
 		if v.Meta == nil {
 			v.Meta = map[string]any{}
 		}
@@ -39,7 +39,7 @@ var provokedSH = &statusHandler{
 }
 
 var simpleAttackModifierSH = &statusHandler{
-	onApply: func(from, to *Unit, sv status.Value) (state ApplyStates) {
+	onApply: func(_ *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
 		to.CurrentAtk += sv.Value
 		state.ToAll(
 			ApplyState{ChangeAtk: new(sv.Value), ToUnitID: to.ID},
@@ -48,7 +48,7 @@ var simpleAttackModifierSH = &statusHandler{
 
 		return
 	},
-	onRemove: func(u *Unit, sv status.Value) (state ApplyStates) {
+	onRemove: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
 		u.CurrentAtk -= sv.Value
 		state.ToAll(
 			ApplyState{ChangeAtk: new(-sv.Value), ToUnitID: u.ID},
@@ -64,13 +64,13 @@ var sharpenedSH = simpleAttackModifierSH
 var frenziedSH = simpleAttackModifierSH
 
 var exposedSH = &statusHandler{
-	onUnitAttacked: func(dmg *int, st status.Value) {
+	onUnitAttacked: func(_ *Arena, dmg *int, st status.Value) {
 		*dmg += st.Value
 	},
 }
 
 var stunnedSH = &statusHandler{
-	onTurnStart: func(u *Unit, v status.Value) (state ApplyStates) {
+	onTurnStart: func(_ *Arena, u *Unit, v status.Value) (state ApplyStates) {
 		state.ToSelf(ApplyState{
 			SkipTurn: true,
 			ToUnitID: u.ID,
@@ -86,7 +86,7 @@ var stunnedSH = &statusHandler{
 }
 
 var hamstrungSH = &statusHandler{
-	onTurnStart: func(u *Unit, st status.Value) (state ApplyStates) {
+	onTurnStart: func(_ *Arena, u *Unit, st status.Value) (state ApplyStates) {
 		u.CurrentMP = st.Value
 		state.ToAll(ApplyState{
 			SetMP:    new(st.Value),
@@ -94,7 +94,7 @@ var hamstrungSH = &statusHandler{
 		})
 		return
 	},
-	onRemove: func(u *Unit, v status.Value) (state ApplyStates) {
+	onRemove: func(_ *Arena, u *Unit, v status.Value) (state ApplyStates) {
 		u.CurrentMP = u.BaseMP
 		state.ToAll(ApplyState{
 			SetMP:    new(u.CurrentMP),
@@ -105,7 +105,7 @@ var hamstrungSH = &statusHandler{
 }
 
 var temporalAnchorSH = &statusHandler{
-	onTurnStart: func(u *Unit, sv status.Value) (state ApplyStates) {
+	onTurnStart: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
 		u.CurrentAP += sv.Value
 		state.ToAll(
 			ApplyState{ChangeAP: new(sv.Value), ToUnitID: u.ID},
@@ -121,7 +121,7 @@ var temporalAnchorSH = &statusHandler{
 		u.Statuses[sv.Status.Type] = current
 		return
 	},
-	onTurnEnd: func(u *Unit, sv status.Value) (state ApplyStates) {
+	onTurnEnd: func(a *Arena, u *Unit, sv status.Value) (state ApplyStates) {
 		if sv.Meta == nil {
 			return
 		}
@@ -139,7 +139,6 @@ var temporalAnchorSH = &statusHandler{
 		prevShield := sv.Meta["shield"].(int)
 		hpDiff := prevHP - u.CurrentHP
 		shDiff := prevShield - u.CurrentShield
-
 		prevPos := sv.Meta["pos"].(HexCoord)
 
 		if hpDiff != 0 {
@@ -157,6 +156,7 @@ var temporalAnchorSH = &statusHandler{
 			)
 		}
 		if prevPos != u.Pos {
+
 			u.Pos = prevPos
 			state.ToAll(
 				ApplyState{MoveTo: new(prevPos), ToUnitID: u.ID},
@@ -168,7 +168,7 @@ var temporalAnchorSH = &statusHandler{
 }
 
 var debuffWardSH = &statusHandler{
-	onOtherStatusApplied: func(from, to *Unit, applied *status.Value, v status.Value) (state ApplyStates) {
+	onOtherStatusApplied: func(_ *Arena, from, to *Unit, applied *status.Value, v status.Value) (state ApplyStates) {
 		if !applied.IsNegative() {
 			return
 		}
@@ -179,7 +179,7 @@ var debuffWardSH = &statusHandler{
 	},
 }
 
-func applyStatusToUnit(st status.Type, from, to *Unit) (state ApplyStates) {
+func applyStatusToUnit(a *Arena, st status.Type, from, to *Unit) (state ApplyStates) {
 	inst := status.ByType(st)
 	if inst == nil {
 		log.Printf("applyStatusToUnit: unknown status type %s", st)
@@ -195,7 +195,7 @@ func applyStatusToUnit(st status.Type, from, to *Unit) (state ApplyStates) {
 
 	statusH := statusHandlers[st]
 	if statusH != nil && statusH.mutate != nil {
-		statusH.mutate(&sv, from, to)
+		statusH.mutate(a, &sv, from, to)
 	}
 
 	for t, v := range to.Statuses {
@@ -206,7 +206,7 @@ func applyStatusToUnit(st status.Type, from, to *Unit) (state ApplyStates) {
 		if h == nil || h.onOtherStatusApplied == nil {
 			continue
 		}
-		state.With(h.onOtherStatusApplied(from, to, &sv, v))
+		state.With(h.onOtherStatusApplied(a, from, to, &sv, v))
 		if sv.Duration == 0 {
 			return
 		}
@@ -223,13 +223,13 @@ func applyStatusToUnit(st status.Type, from, to *Unit) (state ApplyStates) {
 	})
 
 	if !alreadyActive && statusH != nil && statusH.onApply != nil {
-		state.With(statusH.onApply(from, to, sv))
+		state.With(statusH.onApply(a, from, to, sv))
 	}
 
 	return state
 }
 
-func removeStatusFromUnit(st status.Type, u *Unit) (state ApplyStates) {
+func removeStatusFromUnit(a *Arena, st status.Type, u *Unit) (state ApplyStates) {
 	sv, ok := u.Statuses[st]
 	if !ok {
 		log.Printf("removeStatusFromUnit: unit missing status: %s", st)
@@ -240,7 +240,7 @@ func removeStatusFromUnit(st status.Type, u *Unit) (state ApplyStates) {
 
 	h := statusHandlers[st]
 	if h != nil && h.onRemove != nil {
-		state.With(h.onRemove(u, sv))
+		state.With(h.onRemove(a, u, sv))
 	}
 
 	state.ToAll(ApplyState{
@@ -251,7 +251,7 @@ func removeStatusFromUnit(st status.Type, u *Unit) (state ApplyStates) {
 	return
 }
 
-func handleOnTurnStartStatuses(_ *Arena, unit *Unit) (state ApplyStates) {
+func handleOnTurnStartStatuses(a *Arena, unit *Unit) (state ApplyStates) {
 	for t, v := range unit.Statuses {
 		h, ok := statusHandlers[t]
 		if !ok || h == nil {
@@ -262,7 +262,7 @@ func handleOnTurnStartStatuses(_ *Arena, unit *Unit) (state ApplyStates) {
 			continue
 		}
 
-		state.With(h.onTurnStart(unit, v))
+		state.With(h.onTurnStart(a, unit, v))
 	}
 
 	return

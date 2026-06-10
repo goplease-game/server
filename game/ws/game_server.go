@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/ognev-dev/goplease/app/ds"
 	"github.com/ognev-dev/goplease/game"
@@ -199,14 +200,25 @@ func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 
 	ar.ActivePlayer = ownerIdx
 
+	states := game.OnTurnStart(ar, activeUnit)
+
+	if states.HasSkipTurn() {
+		gs.broadcastStates(ar, owner.ID, states)
+		endStates, err := ar.EndTurn(owner.ID)
+		if err != nil {
+			log.Printf("[gameloop] EndTurn error on skip: %v", err)
+			return
+		}
+		gs.broadcastStates(ar, owner.ID, endStates)
+		gs.advanceGameLoop(ar)
+		return
+	}
+
 	gs.sendToPlayer(ar, owner.ID, OutMessage{
 		Action: PlayUnitAction,
 		Data:   game.PlayUnitPayload{UnitID: activeUnit.ID},
 	})
-
-	states := game.OnTurnStart(ar, ar.ActingUnit())
 	gs.broadcastStates(ar, owner.ID, states)
-
 	gs.sendToOpponent(ar, owner.ID, OutMessage{Action: WaitingForOpponent})
 }
 
@@ -344,6 +356,8 @@ func (gs *GameServer) handleUseAbility(c *Client, raw json.RawMessage) {
 		return
 	}
 
+	gs.logAbilityUse(c, req)
+
 	states, err := ar.UseAbility(req, c.PlayerID)
 	if err != nil {
 		c.Send(errMsg(err.Error()))
@@ -401,13 +415,14 @@ func newGamePayload(arena *game.Arena, myIndex int) game.NewGamePayload {
 	}
 
 	return game.NewGamePayload{
-		TurnTimeSeconds: game.TurnTimeSeconds,
-		ArenaID:         arena.ID,
-		Phase:           arena.Phase,
-		IsMyTurn:        arena.ActivePlayer == myIndex,
-		Board:           &game.Board{Cells: cells},
-		Player:          arena.Players[myIndex],
-		Opponent:        arena.Players[1-myIndex].Name,
+		TurnTimeSeconds:            game.TurnTimeSeconds,
+		MaxPhantomAPPerUnitPerTurn: game.MaxPhantomAPPerUnitPerTurn,
+		ArenaID:                    arena.ID,
+		Phase:                      arena.Phase,
+		IsMyTurn:                   arena.ActivePlayer == myIndex,
+		Board:                      &game.Board{Cells: cells},
+		Player:                     arena.Players[myIndex],
+		Opponent:                   arena.Players[1-myIndex].Name,
 	}
 }
 
@@ -462,4 +477,25 @@ func (gs *GameServer) handleSurrender(c *Client) {
 
 	ar.Phase = game.GameOverPhase
 	gs.matchmaker.CloseArena(ar.ID)
+}
+
+func (gs *GameServer) logAbilityUse(c *Client, req game.UseAbilityPayload) {
+	ar := gs.matchmaker.Arena(c.ArenaID)
+
+	var at string
+	if req.Target != nil {
+		at = " at " + req.Target.String()
+		if u := ar.UnitAt(*req.Target); u != nil {
+			at = fmt.Sprintf(" on unit %s%s", u.Name, at)
+		}
+	}
+
+	pl, _ := ar.PlayerByID(c.PlayerID)
+	uName := "null"
+	if u := ar.ActingUnit(); u != nil {
+		uName = u.Name
+	}
+
+	gs.log.Event(pl.Name, fmt.Sprintf("%s used ability '%s'"+at, uName, req.AbilityID))
+
 }

@@ -1,11 +1,12 @@
 package game
 
 import (
-	"fmt"
-
 	"github.com/ognev-dev/goplease/game/ability"
 	"github.com/ognev-dev/goplease/game/ability/status"
 )
+
+// Validation is handled by Arena.ValidateAbilityUse before dispatch,
+// so handlers may assume all preconditions are satisfied.
 
 var abilityHandlers = map[ability.ID]func(a *Arena, e abilityUsedEvent) (ApplyStates, error){
 	ability.BasicMeleeAttack: basicMeleeAttackHandler,
@@ -43,52 +44,22 @@ type abilityUsedEvent struct {
 	At HexCoord
 }
 
-func basicMeleeAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return state, err
-	}
-
-	ab := ability.ByID(ability.BasicMeleeAttack)
-	if !a.Board.Cells.IsUnitInRange(e.By.Pos, ab.Range, target.ID) {
-		err = fmt.Errorf("invalid ability range")
-		return
-	}
-
+func basicAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 	state = a.DealDamageToUnit(e.By, target, e.By.CurrentAtk)
 	return
+}
+
+func basicMeleeAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	return basicAttackHandler(a, e)
 }
 
 func basicRangeAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return state, err
-	}
-
-	ab := ability.ByID(ability.BasicRangeAttack)
-	if !a.Board.Cells.IsUnitInRange(e.By.Pos, ab.Range, target.ID) {
-		err = fmt.Errorf("invalid ability range")
-		return
-	}
-
-	state = a.DealDamageToUnit(e.By, target, e.By.CurrentAtk)
-	return
+	return basicAttackHandler(a, e)
 }
 
 func basicMagicAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return state, err
-	}
-
-	ab := ability.ByID(ability.BasicMagicAttack)
-	if !a.Board.Cells.IsUnitInRange(e.By.Pos, ab.Range, target.ID) {
-		err = fmt.Errorf("invalid ability range")
-		return
-	}
-
-	state = a.DealDamageToUnit(e.By, target, e.By.CurrentAtk)
-	return
+	return basicAttackHandler(a, e)
 }
 
 func fortifyHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
@@ -105,75 +76,65 @@ func fortifyHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
 	return sts, nil
 }
 
-func provokeHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	sts.With(applyStatusToUnit(status.Provoking, e.By, e.By))
+// TODO test this for both sides + client behaviour
+func provokeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	state.With(applyStatusToUnit(a, status.Provoking, e.By, e.By))
 
 	units := a.EnemiesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
-		sts.With(applyStatusToUnit(status.Provoked, e.By, u))
+		state.With(applyStatusToUnit(a, status.Provoked, e.By, u))
 	}
 
-	return sts, nil
+	return state, nil
 }
 
-func shieldBashHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func shieldBashHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
-	sts.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 	return
 }
 
-func powerPushHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func powerPushHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
 	dealDmg := e.Ab.Effect.DealDamage
-
 	pos := e.By.Pos.Opposite(target.Pos)
+
 	if a.UnitAt(pos) == nil {
-		sts.ToAll(ApplyState{MoveTo: new(pos), ToUnitID: target.ID})
+		state.With(a.relocateUnit(target, pos))
+		state.ToAll(ApplyState{MoveTo: new(pos), ToUnitID: target.ID})
 		target.Pos = pos
 	} else {
 		dealDmg = e.Ab.Effect.DealAltDamage
 	}
 
-	sts.With(a.DealDamageToUnit(e.By, target, dealDmg))
-	return sts, nil
+	state.With(a.DealDamageToUnit(e.By, target, dealDmg))
+	return state, nil
 }
 
-func gangUpHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func gangUpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
 	dealDmg := e.By.CurrentAtk
-
 	pos := e.By.Pos.Opposite(target.Pos)
 	u := a.UnitAt(pos)
 	if u != nil && u.IsAlly(e.By) {
 		dealDmg += e.Ab.Effect.BonusDamage
 	}
 
-	sts.With(a.DealDamageToUnit(e.By, target, dealDmg))
+	state.With(a.DealDamageToUnit(e.By, target, dealDmg))
 	return
 }
 
-func eliminateHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func eliminateHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
-	sts.With(a.DealDamageToUnit(e.By, target, e.Ab.Effect.DealDamage))
+	state.With(a.DealDamageToUnit(e.By, target, e.Ab.Effect.DealDamage))
 	if target.IsDead {
 		ap := e.Ab.Effect.AddAP
-		sts.ToAll(
+		e.By.CurrentAP += ap
+		state.ToAll(
 			ApplyState{ChangeAP: new(ap), ToUnitID: e.By.ID},
 			ApplyState{SetAP: new(ap), ToUnitID: e.By.ID},
 		)
@@ -183,16 +144,7 @@ func eliminateHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error)
 }
 
 func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return state, err
-	}
-
-	// Swapping with self is a no-op and likely a bug — abort.
-	if target.ID == e.By.ID {
-		err = fmt.Errorf("translocation: cannot swap unit with itself")
-		return
-	}
+	target := a.UnitAt(e.At)
 
 	from := e.By.Pos
 	to := target.Pos
@@ -208,25 +160,19 @@ func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err 
 	return
 }
 
-func timeWarpHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func timeWarpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
-	sts.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 	return
 }
 
 func purgeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return state, err
-	}
+	target := a.UnitAt(e.At)
 
 	for st, v := range target.Statuses {
 		if v.IsPositive() {
-			state.With(removeStatusFromUnit(st, target))
+			state.With(removeStatusFromUnit(a, st, target))
 		}
 	}
 
@@ -234,31 +180,24 @@ func purgeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 }
 
 func purifyHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return state, err
-	}
+	target := a.UnitAt(e.At)
 
 	for st, v := range target.Statuses {
 		if v.IsNegative() {
-			state.With(removeStatusFromUnit(st, target))
+			state.With(removeStatusFromUnit(a, st, target))
 		}
 	}
 
 	state.With(healUnit(target, e.Ab.Effect.HealHP))
-	state.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 
 	return
 }
 
-func healHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func healHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
-	st := healUnit(target, e.Ab.Effect.HealHP)
-	return st, nil
+	return healUnit(target, e.Ab.Effect.HealHP), nil
 }
 
 func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
@@ -324,70 +263,56 @@ func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error
 	return
 }
 
-func idolihuSpinHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
+func idolihuSpinHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	units := a.EnemiesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
-		sts.With(a.DealDamageToUnit(e.By, u, e.By.CurrentAtk))
+		state.With(a.DealDamageToUnit(e.By, u, e.By.CurrentAtk))
 	}
 
 	return
 }
 
-func piercingShotHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
+func piercingShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	cells := a.Board.Cells.Line(e.By.Pos, e.At, e.Ab.AreaRadius)
 	for _, c := range cells {
 		unit := a.UnitAt(c.Coord)
 		if unit != nil && unit.IsEnemy(e.By) {
-			sts.With(a.DealDamageToUnit(e.By, unit, e.Ab.Effect.DealDamage))
+			state.With(a.DealDamageToUnit(e.By, unit, e.Ab.Effect.DealDamage))
 		}
 	}
 
 	return
 }
 
-func battleCryHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
+func battleCryHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	units := a.AlliesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
-		sts.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, u))
+		state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, u))
 	}
 
 	return
 }
 
-func shadowStepHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	if a.CellOccupied(e.At) {
-		err = fmt.Errorf("shadowStep: target cell %s is occupied", e.At)
-		return
-	}
-
+func shadowStepHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	a.relocateUnit(e.By, e.At)
 
-	sts.ToOpp(ApplyState{MoveTo: new(e.At), ToUnitID: e.By.ID})
-
-	sts.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, e.By))
-
-	return
-}
-
-func huntersMarkHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
-
-	sts.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, target))
+	state.ToOpp(ApplyState{MoveTo: new(e.At), ToUnitID: e.By.ID})
+	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, e.By))
 
 	return
 }
 
-func hamstringShotHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
-	target, err := a.ShouldUnitAt(e.At)
-	if err != nil {
-		return sts, err
-	}
+func huntersMarkHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
 
-	sts.With(a.DealDamageToUnit(e.By, target, e.Ab.Effect.DealDamage))
-	sts.With(applyStatusToUnit(e.Ab.Effect.ApplyStatus, e.By, target))
+	return applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target), nil
+}
+
+func hamstringShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
+	target := a.UnitAt(e.At)
+
+	state.With(a.DealDamageToUnit(e.By, target, e.Ab.Effect.DealDamage))
+	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 
 	return
 }

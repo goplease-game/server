@@ -9,6 +9,7 @@ func init() {
 	triggers = &TriggerRegistry{
 		onDeath: []onDeathHandler{
 			useUndyingWillAbility,
+			recalculateFrenzyAbility,
 		},
 		onMove: []onMoveHandler{
 			recalculateFrenzyAbility,
@@ -29,16 +30,16 @@ func init() {
 var triggers *TriggerRegistry
 
 // onDeathHandler defines a function signature for triggers that execute when a unit dies.
-type onDeathHandler func(u *Unit) ApplyStates
+type onDeathHandler func(*Arena, *Unit) ApplyStates
 
 // onMoveHandler defines a function signature for triggers that execute when a unit moves.
-type onMoveHandler func(a *Arena, u *Unit) ApplyStates
+type onMoveHandler func(*Arena, *Unit) ApplyStates
 
 // onDamageReceivedHandler defines a function signature for triggers that execute when a unit takes damage.
 type onDamageReceivedHandler func(a *Arena, source, target *Unit) ApplyStates
 
 // onTurnStartHandler defines a function signature for triggers that execute at the beginning of a unit's turn.
-type onTurnStartHandler func(a *Arena, u *Unit) ApplyStates
+type onTurnStartHandler func(*Arena, *Unit) ApplyStates
 
 // TriggerRegistry manages and routes game event triggers to their respective handlers.
 type TriggerRegistry struct {
@@ -49,9 +50,9 @@ type TriggerRegistry struct {
 }
 
 // SomebodyJustExpectedlyDied executes all registered handlers for a unit's death event.
-func (r *TriggerRegistry) SomebodyJustExpectedlyDied(unfortunateOne *Unit) (state ApplyStates) {
+func (r *TriggerRegistry) SomebodyJustExpectedlyDied(a *Arena, unfortunateOne *Unit) (state ApplyStates) {
 	for _, takeCareOf := range r.onDeath {
-		state.With(takeCareOf(unfortunateOne))
+		state.With(takeCareOf(a, unfortunateOne))
 	}
 
 	return
@@ -90,14 +91,14 @@ func OnTurnStart(a *Arena, u *Unit) (sts ApplyStates) {
 	return triggers.TurnStarted(a, u)
 }
 
-func useUndyingWillAbility(u *Unit) (st ApplyStates) {
+func useUndyingWillAbility(_ *Arena, u *Unit) (state ApplyStates) {
 	id := ability.UndyingWill
 	ab := ability.ByID(id)
 	if !u.HasAbility(id) {
 		return
 	}
 
-	if u.Cooldowns[id] > 0 {
+	if !u.AbilityReady(id) {
 		return
 	}
 
@@ -107,7 +108,7 @@ func useUndyingWillAbility(u *Unit) (st ApplyStates) {
 
 	u.SetCooldown(id, ab.Cooldown)
 
-	st.ToAll(
+	state.ToAll(
 		ApplyState{UseAbility: new(UseAbilityPayload{UnitID: u.ID, AbilityID: id}), ToUnitID: u.ID},
 		ApplyState{ChangeHP: new(u.CurrentHP), ToUnitID: u.ID},
 		ApplyState{SetHP: new(u.CurrentHP), ToUnitID: u.ID},
@@ -118,7 +119,7 @@ func useUndyingWillAbility(u *Unit) (st ApplyStates) {
 	return
 }
 
-func recalculateFrenzyAbility(a *Arena, _ *Unit) (sts ApplyStates) {
+func recalculateFrenzyAbility(a *Arena, _ *Unit) (state ApplyStates) {
 	id := ability.Frenzy
 	ab := ability.ByID(id)
 
@@ -132,14 +133,14 @@ func recalculateFrenzyAbility(a *Arena, _ *Unit) (sts ApplyStates) {
 
 		// Remove
 		if enemies < 2 && isFrenzied {
-			sts.With(removeStatusFromUnit(ab.Effect.ApplyStatus, u))
+			state.With(removeStatusFromUnit(a, ab.Effect.ApplyStatus, u))
 			continue
 		}
 
 		// Add
 		if enemies >= 2 && !isFrenzied {
-			sts.With(
-				applyStatusToUnit(ab.Effect.ApplyStatus, u, u),
+			state.With(
+				applyStatusToUnit(a, ab.Effect.ApplyStatus, u, u),
 			)
 		}
 	}
@@ -178,7 +179,7 @@ func useCoverFireAbility(a *Arena, source, target *Unit) (st ApplyStates) {
 	return
 }
 
-func useOpportunityAbility(a *Arena, source, target *Unit) (st ApplyStates) {
+func useOpportunityAbility(a *Arena, source, target *Unit) (state ApplyStates) {
 	if source.Pos.Distance(target.Pos) > 1 { // only melee attacks
 		return
 	}
@@ -196,12 +197,12 @@ func useOpportunityAbility(a *Arena, source, target *Unit) (st ApplyStates) {
 		}
 
 		u.SetCooldown(id, ab.Cooldown)
-		st.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
+		state.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
 			UnitID:    u.ID,
 			AbilityID: id,
 			Target:    new(target.Pos),
 		}), ToUnitID: u.ID})
-		st.With(a.DealDamageToUnit(u, target, u.CurrentAtk))
+		state.With(a.DealDamageToUnit(u, target, u.CurrentAtk))
 	}
 
 	return

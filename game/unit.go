@@ -79,9 +79,8 @@ func (u *Unit) ValidateAbilityUse(id ability.ID) error {
 		return nil
 	}
 
-	cd, ok := u.Cooldowns[id]
-	if !ok {
-		return nil
+	if !u.AbilityReady(id) {
+		return fmt.Errorf("ability %s is on cooldown", ab.ID)
 	}
 
 	if cd > 0 {
