@@ -2,10 +2,10 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/ognev-dev/goplease/app/ds"
 	"github.com/ognev-dev/goplease/game"
-	"github.com/ognev-dev/goplease/game/ability"
 	"github.com/ognev-dev/goplease/game/match"
 )
 
@@ -27,7 +27,7 @@ const (
 	OppDisconnectedAction Action = "opp_disconnected"
 	CancelMatchAction     Action = "cancel_match"
 	MatchCancelledAction  Action = "match_canceled"
-	UseAbility            Action = "use_ability"
+	UseAbilityAction      Action = "use_ability"
 	ErrorAction           Action = "error"
 )
 
@@ -35,12 +35,14 @@ const (
 type GameServer struct {
 	hub        *Hub
 	matchmaker *match.Matchmaker
+	log        *ActionLogger
 }
 
 func NewGameServer(hub *Hub, mm *match.Matchmaker) *GameServer {
 	return &GameServer{
 		hub:        hub,
 		matchmaker: mm,
+		log:        NewActionLogger(true),
 	}
 }
 
@@ -80,7 +82,7 @@ func (gs *GameServer) onConnect(c *Client) {
 
 func (gs *GameServer) onDisconnect(c *Client) {
 	gs.matchmaker.Cancel(c.PlayerID)
-	if c.ArenaID != "" {
+	if !c.ArenaID.IsNil() {
 		gs.hub.Broadcast(c.ArenaID, OutMessage{
 			Action: OppDisconnectedAction,
 			Data:   DisconnectResponse{PlayerID: c.PlayerID},
@@ -89,8 +91,10 @@ func (gs *GameServer) onDisconnect(c *Client) {
 }
 
 func (gs *GameServer) onMessage(c *Client, msg InMessage) {
-	switch msg.Action {
+	ar := gs.matchmaker.Arena(c.ArenaID)
+	gs.log.Received(gs.playerName(ar, c.PlayerID), string(msg.Action))
 
+	switch msg.Action {
 	case NewGameAction:
 		gs.prepareNewGame(c)
 
@@ -110,8 +114,8 @@ func (gs *GameServer) onMessage(c *Client, msg InMessage) {
 	case EndTurnAction:
 		gs.handleEndTurn(c)
 
-	case UseAbility:
-		gs.useAbility(c, msg.Data)
+	case UseAbilityAction:
+		gs.handleUseAbility(c, msg.Data)
 
 	default:
 		c.Send(OutMessage{
@@ -150,7 +154,7 @@ func (gs *GameServer) handleReadyToPlay(c *Client) {
 
 	c.Send(OutMessage{Action: WaitingForOpponent})
 
-	if !ar.MarkReady(c.PlayerID) {
+	if !ar.MarkPlayerReady(c.PlayerID) {
 		return
 	}
 
@@ -189,6 +193,10 @@ func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 		Action: PlayUnitAction,
 		Data:   game.PlayUnitPayload{UnitID: activeUnit.ID},
 	})
+
+	states := game.OnTurnStart(ar, ar.ActingUnit())
+	gs.broadcastStates(ar, owner.ID, states)
+
 	gs.sendToOpponent(ar, owner.ID, OutMessage{Action: WaitingForOpponent})
 }
 
@@ -234,6 +242,7 @@ func (gs *GameServer) startNewRound(ar *game.Arena) {
 }
 
 func (gs *GameServer) sendToPlayer(ar *game.Arena, playerID ds.ID, msg OutMessage) {
+	gs.log.Sent(gs.playerName(ar, playerID), string(msg.Action))
 	c := gs.hub.ClientByPlayerID(playerID)
 	if c != nil {
 		c.Send(msg)
@@ -247,12 +256,6 @@ func (gs *GameServer) sendToOpponent(ar *game.Arena, playerID ds.ID, msg OutMess
 			return
 		}
 	}
-}
-
-type useAbilityReq struct {
-	UnitID    ds.ID          `json:"unit_id"`
-	AbilityID ability.ID     `json:"ability_id"`
-	Target    *game.HexCoord `json:"target,omitempty"`
 }
 
 func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
@@ -273,6 +276,9 @@ func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
 		c.Send(errMsg(err.Error()))
 		return
 	}
+
+	gs.log.Event(gs.playerName(ar, c.PlayerID),
+		fmt.Sprintf("placed unit at %s", req.Coord))
 
 	gs.sendToOpponent(ar, c.PlayerID, OutMessage{
 		Action: UnitPlacedAction,
@@ -298,7 +304,7 @@ func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
 		return
 	}
 
-	err := ar.MoveUnit(req.UnitID, req.Coord, c.PlayerID)
+	states, err := ar.MoveUnit(req.UnitID, req.Coord, c.PlayerID)
 	if err != nil {
 		c.Send(errMsg(err.Error()))
 		return
@@ -311,10 +317,12 @@ func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
 			Coord:  req.Coord,
 		},
 	})
+
+	gs.broadcastStates(ar, c.PlayerID, states)
 }
 
-func (gs *GameServer) useAbility(c *Client, raw json.RawMessage) {
-	var req useAbilityReq
+func (gs *GameServer) handleUseAbility(c *Client, raw json.RawMessage) {
+	var req game.UseAbilityPayload
 	if err := json.Unmarshal(raw, &req); err != nil {
 		c.Send(errMsg("invalid use_ability payload"))
 		return
@@ -326,28 +334,13 @@ func (gs *GameServer) useAbility(c *Client, raw json.RawMessage) {
 		return
 	}
 
-	unit := ar.ActingUnit()
-	if unit == nil {
-		c.Send(errMsg("unit not found"))
-		return
-	}
-
-	err := unit.ValidateAbilityUse(req.AbilityID)
+	states, err := ar.UseAbility(req, c.PlayerID)
 	if err != nil {
 		c.Send(errMsg(err.Error()))
 		return
 	}
 
-	// find ability
-	ab, ok := ability.Abilities[req.AbilityID]
-	if !ok {
-		c.Send(errMsg("unknown ability"))
-		return
-	}
-
-	_ = ab
-
-	// pass ability down to ability execution pipeline
+	gs.broadcastStates(ar, c.PlayerID, states)
 }
 
 func (gs *GameServer) handleEndTurn(c *Client) {
@@ -363,11 +356,10 @@ func (gs *GameServer) handleEndTurn(c *Client) {
 		return
 	}
 
-	if len(states) > 0 {
-		data, _ := json.Marshal(states)
-		gs.hub.Broadcast(ar.ID, OutMessage{Action: ApplyStateAction, Data: data})
-	}
+	gs.log.Event(gs.playerName(ar, c.PlayerID),
+		fmt.Sprintf("ended turn, next active=%s", ar.ActiveUnitID))
 
+	gs.broadcastStates(ar, c.PlayerID, states)
 	gs.advanceGameLoop(ar)
 }
 
@@ -398,4 +390,26 @@ func newGamePayload(arena *game.Arena, myIndex int) game.NewGamePayload {
 		Player:          arena.Players[myIndex],
 		Opponent:        arena.Players[1-myIndex].Name,
 	}
+}
+
+func (gs *GameServer) broadcastStates(ar *game.Arena, playerID ds.ID, states game.ApplyStates) {
+	if len(states.Global) > 0 {
+		gs.hub.Broadcast(ar.ID, OutMessage{Action: ApplyStateAction, Data: states.Global})
+	}
+	if len(states.Self) > 0 {
+		gs.sendToPlayer(ar, playerID, OutMessage{Action: ApplyStateAction, Data: states.Self})
+	}
+	if len(states.Opponent) > 0 {
+		gs.sendToOpponent(ar, playerID, OutMessage{Action: ApplyStateAction, Data: states.Opponent})
+	}
+}
+
+func (gs *GameServer) playerName(ar *game.Arena, playerID ds.ID) string {
+	if ar != nil {
+		p, _ := ar.PlayerByID(playerID)
+		if p != nil {
+			return p.Name
+		}
+	}
+	return playerID.String()[:8]
 }

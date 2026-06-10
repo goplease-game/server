@@ -47,22 +47,30 @@ type ApplyState struct {
 	UseAbility *UseAbilityPayload `json:"use_ability,omitempty"`
 }
 
-// ApplyStates represents a collection of atomic state mutations bound to a single unit.
-type ApplyStates []ApplyState
-
-// NewUnitStates initializes a new ApplyStates slice dedicated to a specific unit's timeline events.
-func NewUnitStates(ss ...ApplyState) ApplyStates {
-	return ss
+type ApplyStates struct {
+	Global   []ApplyState
+	Self     []ApplyState
+	Opponent []ApplyState
 }
 
-// Add appends new states to this unit's timeline.
-func (s *ApplyStates) Add(ss ...ApplyState) ApplyStates {
-	*s = append(*s, ss...)
-	return *s
+func (s *ApplyStates) ToAll(ss ...ApplyState) {
+	s.Global = append(s.Global, ss...)
 }
 
-type UseAbilityPayload struct {
-	UnitID    string     `json:"unit_id"`
-	AbilityID ability.ID `json:"ability_id"`
-	Target    HexCoord   `json:"target,omitempty"`
+func (s *ApplyStates) ToSelf(ss ...ApplyState) {
+	s.Self = append(s.Self, ss...)
+}
+
+func (s *ApplyStates) ToOpp(ss ...ApplyState) {
+	s.Opponent = append(s.Opponent, ss...)
+}
+
+func (s *ApplyStates) With(state ApplyStates) {
+	s.Global = append(s.Global, state.Global...)
+	s.Self = append(s.Self, state.Self...)
+	s.Opponent = append(s.Opponent, state.Opponent...)
+}
+
+func (s *ApplyStates) IsEmpty() bool {
+	return len(s.Global) == 0 && len(s.Opponent) == 0
 }

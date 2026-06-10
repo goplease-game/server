@@ -60,6 +60,7 @@ type Ability struct {
 }
 
 type Effect struct {
+	HealHP        int         `json:"heal_hp"`
 	AddHP         int         `json:"add_hp"`
 	AddShield     int         `json:"add_shield"`
 	AddAP         int         `json:"add_ap"`

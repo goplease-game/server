@@ -47,7 +47,7 @@ const (
 type Client struct {
 	ID       string
 	PlayerID ds.ID
-	ArenaID  string
+	ArenaID  ds.ID
 
 	hub  *Hub
 	conn *websocket.Conn
@@ -172,7 +172,7 @@ type Envelope struct {
 
 // RoomBroadcast sends a message to every client in a specific room.
 type RoomBroadcast struct {
-	RoomID  string
+	RoomID  ds.ID
 	Message OutMessage
 }
 
@@ -261,7 +261,7 @@ func (h *Hub) broadcastLoop() {
 }
 
 // Broadcast enqueues a message for every client in a room.
-func (h *Hub) Broadcast(roomID string, msg OutMessage) {
+func (h *Hub) Broadcast(roomID ds.ID, msg OutMessage) {
 	h.broadcast <- RoomBroadcast{RoomID: roomID, Message: msg}
 }
 

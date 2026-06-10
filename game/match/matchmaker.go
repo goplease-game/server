@@ -25,14 +25,14 @@ type queueEntry struct {
 type Matchmaker struct {
 	mu     sync.Mutex
 	queue  []queueEntry
-	arenas map[string]*game.Arena // arenaID:arena
+	arenas map[ds.ID]*game.Arena
 
 	botAI *bot.Bot
 }
 
 func New() *Matchmaker {
 	mm := &Matchmaker{
-		arenas: make(map[string]*game.Arena),
+		arenas: make(map[ds.ID]*game.Arena),
 		botAI:  bot.New(),
 	}
 	go mm.watchQueue()
@@ -89,18 +89,18 @@ func (mm *Matchmaker) Cancel(playerID ds.ID) {
 }
 
 // Arena returns the active room with the given ID, or nil.
-func (mm *Matchmaker) Arena(arenaID string) *game.Arena {
+func (mm *Matchmaker) Arena(arenaID ds.ID) *game.Arena {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 	return mm.arenas[arenaID]
 }
 
-// CloseRoom removes a finished room from the registry.
-func (mm *Matchmaker) CloseRoom(roomID string) {
+// CloseArena removes a finished room from the registry.
+func (mm *Matchmaker) CloseArena(id ds.ID) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
-	delete(mm.arenas, roomID)
-	log.Printf("[match] room %s closed", roomID)
+	delete(mm.arenas, id)
+	log.Printf("[match] arena %s closed", id)
 }
 
 // MaybeTriggerBot checks if the active player in a room is a bot and, if so,
@@ -174,9 +174,9 @@ func (mm *Matchmaker) createArena(p1ID, p2ID ds.ID, p2IsBot bool) *game.Arena {
 	p1 := game.NewPlayer(p1ID, "Player 1", 0, false, deck1)
 	p2 := game.NewPlayer(p2ID, nameForPlayer(p2IsBot), 1, p2IsBot, deck2)
 
-	room := game.NewArena(p1, p2)
-	mm.arenas[room.ID] = room
-	return room
+	arena := game.NewArena(p1, p2)
+	mm.arenas[arena.ID] = arena
+	return arena
 }
 
 func nameForPlayer(isBot bool) string {

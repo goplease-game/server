@@ -1,5 +1,7 @@
 package game
 
+import "github.com/ognev-dev/goplease/app/ds"
+
 const (
 	MaxTurns        = 20
 	TurnTimeSeconds = 999
@@ -20,7 +22,7 @@ const (
 )
 
 type NewGamePayload struct {
-	ArenaID         string     `json:"arena_id"`
+	ArenaID         ds.ID      `json:"arena_id"`
 	Phase           RoundPhase `json:"phase"`
 	IsMyTurn        bool       `json:"is_my_turn"`
 	Board           *Board     `json:"board"`

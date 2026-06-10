@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+
+	"github.com/ognev-dev/goplease/game/ability"
 )
 
 const (
@@ -20,6 +22,10 @@ func (h HexCoord) Key() string {
 	return strconv.Itoa(h.Q) + ":" + strconv.Itoa(h.R)
 }
 
+func (h HexCoord) String() string {
+	return h.Key()
+}
+
 func (h HexCoord) Distance(to HexCoord) int {
 	abs := func(x int) int {
 		if x < 0 {
@@ -29,6 +35,14 @@ func (h HexCoord) Distance(to HexCoord) int {
 	}
 
 	return (abs(h.Q-to.Q) + abs(h.Q+h.R-to.Q-to.R) + abs(h.R-to.R)) / 2
+}
+
+// Opposite returns the hex coordinate directly opposite to the origin relative to the center.
+func (h HexCoord) Opposite(center HexCoord) HexCoord {
+	return HexCoord{
+		Q: 2*center.Q - h.Q,
+		R: 2*center.R - h.R,
+	}
 }
 
 type BoardCell struct {
@@ -59,6 +73,91 @@ func (b BoardCells) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(out)
+}
+
+func (b BoardCells) InRange(from HexCoord, rangeN int) []*BoardCell {
+	var result []*BoardCell
+	for to, cell := range b {
+		if from.Distance(to) <= rangeN {
+			result = append(result, cell)
+		}
+	}
+
+	return result
+}
+
+func (b BoardCells) InRangeHavingUnit(from HexCoord, rangeN int) []*BoardCell {
+	var result []*BoardCell
+	for to, cell := range b {
+		if cell.Unit == nil {
+			continue
+		}
+		if from.Distance(to) <= rangeN {
+			result = append(result, cell)
+		}
+	}
+
+	return result
+}
+
+func (b BoardCells) InRangeHavingUnitAbility(from HexCoord, rangeN int, abID ability.ID) []*BoardCell {
+	var result []*BoardCell
+	for to, cell := range b {
+		if cell.Unit == nil {
+			continue
+		}
+		if !cell.Unit.HasAbility(abID) {
+			continue
+		}
+		if from.Distance(to) <= rangeN {
+			result = append(result, cell)
+		}
+	}
+
+	return result
+}
+
+// Line returns cells along a ray from [from] strictly in the direction of targetPos,
+// up to radius steps. If targetPos does not lie on any of the 6 hex axes from [from],
+// it returns an empty slice.
+func (b BoardCells) Line(from, to HexCoord, size int) []*BoardCell {
+	if from == to {
+		return []*BoardCell{}
+	}
+
+	dq := to.Q - from.Q
+	dr := to.R - from.R
+
+	// A valid hex axis requires dr==0, dq==0, or dq==-dr.
+	// In all valid cases the unit direction is just sign(dq), sign(dr).
+	if dr != 0 && dq != 0 && dq != -dr {
+		return []*BoardCell{}
+	}
+
+	sign := func(x int) int {
+		if x > 0 {
+			return 1
+		}
+		if x < 0 {
+			return -1
+		}
+		return 0
+	}
+
+	dir := HexCoord{Q: sign(dq), R: sign(dr)}
+
+	var result []*BoardCell
+	cur := from
+	for range size {
+		cur = HexCoord{Q: cur.Q + dir.Q, R: cur.R + dir.R}
+		cell, ok := b[cur]
+		if !ok {
+			break
+		}
+		result = append(result, cell)
+	}
+
+	return result
 }
 
 func NewBoard() *Board {
@@ -94,32 +193,26 @@ func newHexBoard(size int) Board {
 	return b
 }
 
-func (b *Board) CellAt(coord HexCoord) *BoardCell {
-	return b.Cells[coord]
-}
-
-func (b *Board) UnitAt(coord HexCoord) *Unit {
-	cell := b.CellAt(coord)
-	if cell == nil {
-		return nil
+// lineAreaCells returns all board cells in all 6 directions from `from` up to `length` steps.
+// Used for AreaLine abilities like PiercingShot.
+func lineAreaCells(cells BoardCells, from HexCoord, radius int) []*BoardCell {
+	dirs := []HexCoord{
+		{Q: 1, R: 0}, {Q: -1, R: 0},
+		{Q: 0, R: 1}, {Q: 0, R: -1},
+		{Q: 1, R: -1}, {Q: -1, R: 1},
 	}
 
-	return cell.Unit
-}
-
-func (b *Board) PlaceUnit(coord HexCoord, u *Unit) bool {
-	cell := b.CellAt(coord)
-	if cell == nil {
-		return false
+	var result []*BoardCell
+	for _, dir := range dirs {
+		cur := from
+		for i := 0; i < radius; i++ {
+			cur = HexCoord{Q: cur.Q + dir.Q, R: cur.R + dir.R}
+			cell, ok := cells[cur]
+			if !ok {
+				break
+			}
+			result = append(result, cell)
+		}
 	}
-
-	cell.Unit = u
-	return true
-}
-
-func (b *Board) ClearUnit(coord HexCoord) {
-	cell := b.CellAt(coord)
-	if cell != nil {
-		cell.Unit = nil
-	}
+	return result
 }

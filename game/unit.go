@@ -101,6 +101,52 @@ func (u *Unit) HasAbility(id ability.ID) bool {
 	return false
 }
 
+func (u *Unit) SetCooldown(id ability.ID, cd int) {
+	if u.Cooldowns == nil {
+		u.Cooldowns = make(map[ability.ID]int)
+	}
+
+	if cd == 0 {
+		delete(u.Cooldowns, id)
+		return
+	}
+
+	u.Cooldowns[id] = cd
+}
+
+func (u *Unit) HasStatus(t status.Type) bool {
+	_, ok := u.Statuses[t]
+	return ok
+}
+
+func (u *Unit) AddStatus(value status.Value) {
+	if u.Statuses == nil {
+		u.Statuses = make(map[status.Type]status.Value)
+	}
+
+	u.Statuses[value.Status.Type] = value
+}
+
+func (u *Unit) RemoveStatus(t status.Type) {
+	delete(u.Statuses, t)
+}
+
+func (u *Unit) IsEnemy(to *Unit) bool {
+	return u.OwnerID != to.OwnerID
+}
+
+func (u *Unit) IsAlly(to *Unit) bool {
+	return !u.IsEnemy(to)
+}
+
+func (u *Unit) Alive() bool {
+	return !u.IsDead
+}
+
+func (u *Unit) AbilityReady(id ability.ID) bool {
+	return !(u.Cooldowns[id] > 0)
+}
+
 func StartingUnits(playerID ds.ID) []*Unit {
 	units := make([]*Unit, len(unit.DefaultTemplates))
 

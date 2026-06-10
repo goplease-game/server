@@ -1,5 +1,7 @@
 package status
 
+import "github.com/ognev-dev/goplease/app/ds"
+
 type Type string
 type Alignment string
 
@@ -35,7 +37,7 @@ type Status struct {
 }
 
 type Value struct {
-	UnitID   string         `json:"unit_id"`
+	UnitID   ds.ID          `json:"unit_id"`
 	Duration int            `json:"duration"`
 	Value    int            `json:"value"`
 	Status   *Status        `json:"status"`
