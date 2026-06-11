@@ -5,6 +5,16 @@ import (
 	"github.com/ognev-dev/goplease/game/ability"
 )
 
+type NewGamePayload struct {
+	ArenaID                    ds.ID      `json:"arena_id"`
+	Phase                      RoundPhase `json:"phase"`
+	Board                      *Board     `json:"board"`
+	Player                     *Player    `json:"player"`
+	Opponent                   string     `json:"opponent"`
+	TurnTimeSeconds            int        `json:"turn_time_seconds"`
+	MaxPhantomAPPerUnitPerTurn int        `json:"max_phantom_ap_per_unit_per_turn"`
+}
+
 type PlaceUnitPayload struct {
 	Coord HexCoord `json:"coord"`
 	Unit  *Unit    `json:"unit"`

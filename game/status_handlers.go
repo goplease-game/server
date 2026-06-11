@@ -116,7 +116,7 @@ var temporalAnchorSH = &statusHandler{
 		current.Meta = map[string]any{
 			"hp":     u.CurrentHP,
 			"shield": u.CurrentShield,
-			"pos":    u.Pos,
+			"pos":    u.PosVal(),
 		}
 		u.Statuses[sv.Status.Type] = current
 		return
@@ -155,9 +155,9 @@ var temporalAnchorSH = &statusHandler{
 				ApplyState{SetHP: new(u.CurrentShield), ToUnitID: u.ID},
 			)
 		}
-		if prevPos != u.Pos {
+		if prevPos != u.PosVal() {
 
-			u.Pos = prevPos
+			u.Pos = &prevPos
 			state.ToAll(
 				ApplyState{MoveTo: new(prevPos), ToUnitID: u.ID},
 			)

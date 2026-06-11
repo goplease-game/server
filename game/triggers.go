@@ -170,7 +170,7 @@ func useCoverFireAbility(a *Arena, source, target *Unit) (st ApplyStates) {
 		st.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
 			UnitID:    u.ID,
 			AbilityID: id,
-			Target:    new(source.Pos),
+			Target:    source.Pos,
 		}), ToUnitID: u.ID})
 
 		st.With(a.DealDamageToUnit(u, source, ab.Effect.DealDamage))
@@ -180,7 +180,7 @@ func useCoverFireAbility(a *Arena, source, target *Unit) (st ApplyStates) {
 }
 
 func useOpportunityAbility(a *Arena, source, target *Unit) (state ApplyStates) {
-	if source.Pos.Distance(target.Pos) > 1 { // only melee attacks
+	if source.PosVal().Distance(target.PosVal()) > 1 { // only melee attacks
 		return
 	}
 
@@ -200,7 +200,7 @@ func useOpportunityAbility(a *Arena, source, target *Unit) (state ApplyStates) {
 		state.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
 			UnitID:    u.ID,
 			AbilityID: id,
-			Target:    new(target.Pos),
+			Target:    target.Pos,
 		}), ToUnitID: u.ID})
 		state.With(a.DealDamageToUnit(u, target, u.CurrentAtk))
 	}
@@ -236,7 +236,7 @@ func useFocusFieldAbility(a *Arena, unit *Unit) (st ApplyStates) {
 			st.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
 				UnitID:    u.ID,
 				AbilityID: id,
-				Target:    new(unit.Pos),
+				Target:    unit.Pos,
 			}), ToUnitID: unit.ID})
 		}
 
@@ -267,7 +267,7 @@ func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 		st.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
 			UnitID:    target.ID,
 			AbilityID: id,
-			Target:    new(target.Pos),
+			Target:    target.Pos,
 		}), ToUnitID: target.ID})
 		st.ToAll(ApplyState{SetBaseHP: new(target.BaseHP), ToUnitID: target.ID})
 		st.With(healUnit(target, ab.Effect.HealHP))

@@ -16,7 +16,6 @@ import (
 	"github.com/markbates/goth/providers/google"
 	"github.com/ognev-dev/goplease/app"
 	"github.com/ognev-dev/goplease/app/service"
-	"github.com/ognev-dev/goplease/game/match"
 	"github.com/ognev-dev/goplease/game/ws"
 	"github.com/ognev-dev/goplease/server/endpoint"
 	"github.com/ognev-dev/goplease/server/handler"
@@ -39,9 +38,8 @@ func New(s *service.Service, t trace.Tracer) *http.Server {
 	r := endpoint.NewRouter(mw, h)
 
 	// game endpoints
-	mm := match.New()
 	hub := ws.NewHub()
-	gs := ws.NewGameServer(hub, mm)
+	gs := ws.NewGameServer(hub)
 
 	go hub.Run()
 	go gs.Run()

@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 
@@ -159,7 +160,7 @@ func (a *Arena) PlaceUnitFromHandToBoard(templateID int, at HexCoord, playerID d
 		return nil, fmt.Errorf("unit with template %d not found in hand", templateID)
 	}
 
-	u.Pos = at
+	u.Pos = &at
 	cell.Unit = u
 	player.UnitsPlacedThisRound++
 	a.UnitsQueue = append(a.UnitsQueue, u)
@@ -215,8 +216,8 @@ func (a *Arena) MoveUnit(unitID ds.ID, to HexCoord, playerID ds.ID) (sts ApplySt
 // relocateUnit moves a unit to a new cell and applies onMove triggers.
 // No validation — caller is responsible.
 func (a *Arena) relocateUnit(u *Unit, to HexCoord) (sts ApplyStates) {
-	a.Board.Cells[u.Pos].Unit = nil
-	u.Pos = to
+	a.Board.Cells[u.PosVal()].Unit = nil
+	u.Pos = &to
 	a.Board.Cells[to].Unit = u
 
 	return triggers.UnitMoved(a, u)
@@ -241,8 +242,16 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 		return
 	}
 
+
+
 	// Decrease status durations
 	for t, sv := range u.Statuses {
+		// before status removed, trigger onTurnEnd
+		h, ok := statusHandlers[t]
+		if ok && h != nil && h.onTurnEnd != nil {
+			state.With(h.onTurnEnd(a, u, sv))
+		}
+
 		if sv.Duration == status.Permanent {
 			continue
 		}
@@ -500,7 +509,7 @@ func (a *Arena) RecalculatePhantomAP() (state ApplyStates) {
 
 func (a *Arena) AlliesInRange(u *Unit, radius int) []*Unit {
 	units := []*Unit{}
-	cells := a.Board.Cells.InRangeHavingUnit(u.Pos, radius)
+	cells := a.Board.Cells.InRangeHavingUnit(u.PosVal(), radius)
 	for _, c := range cells {
 		if !c.Unit.Alive() || c.Unit.IsEnemy(u){
 			continue
@@ -514,7 +523,7 @@ func (a *Arena) AlliesInRange(u *Unit, radius int) []*Unit {
 
 func (a *Arena) EnemiesInRange(u *Unit, radius int) []*Unit {
 	units := []*Unit{}
-	cells := a.Board.Cells.InRangeHavingUnit(u.Pos, radius)
+	cells := a.Board.Cells.InRangeHavingUnit(u.PosVal(), radius)
 	for _, c := range cells {
 		if !c.Unit.Alive() || c.Unit.IsAlly(u){
 			continue
@@ -528,7 +537,7 @@ func (a *Arena) EnemiesInRange(u *Unit, radius int) []*Unit {
 
 func (a *Arena) AlliesInRangeHavingAbility(u *Unit, radius int, abID ability.ID) []*Unit {
 	units := []*Unit{}
-	cells := a.Board.Cells.InRangeHavingUnitAbility(u.Pos, radius, abID)
+	cells := a.Board.Cells.InRangeHavingUnitAbility(u.PosVal(), radius, abID)
 	for _, c := range cells {
 		if !c.Unit.Alive() || c.Unit.IsEnemy(u) {
 			continue
@@ -542,7 +551,7 @@ func (a *Arena) AlliesInRangeHavingAbility(u *Unit, radius int, abID ability.ID)
 
 func (a *Arena) EnemiesInRangeHavingAbility(u *Unit, radius int, abID ability.ID) []*Unit {
 	units := []*Unit{}
-	cells := a.Board.Cells.InRangeHavingUnitAbility(u.Pos, radius, abID)
+	cells := a.Board.Cells.InRangeHavingUnitAbility(u.PosVal(), radius, abID)
 	for _, c := range cells {
 		if !c.Unit.Alive() || c.Unit.IsAlly(u) {
 			continue
@@ -617,6 +626,9 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 	if ab.Area != "" {
 		rangeN = ab.AreaRadius
 	}
+
+	log.Printf("[validate] caster pos: %v, target: %v, distance: %d, range: %d",
+		caster.PosVal(), *targetAt, caster.PosVal().Distance(*targetAt), rangeN)
 
 	if caster.Pos.Distance(*targetAt) > rangeN {
 		return fmt.Errorf("target out of range: distance %d, range %d",

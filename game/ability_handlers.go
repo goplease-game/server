@@ -99,12 +99,12 @@ func powerPushHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 	target := a.UnitAt(e.At)
 
 	dealDmg := e.Ab.Effect.DealDamage
-	pos := e.By.Pos.Opposite(target.Pos)
+	pos := e.By.PosVal().Opposite(target.PosVal())
 
 	if a.UnitAt(pos) == nil {
 		state.With(a.relocateUnit(target, pos))
 		state.ToAll(ApplyState{MoveTo: new(pos), ToUnitID: target.ID})
-		target.Pos = pos
+		target.Pos = &pos
 	} else {
 		dealDmg = e.Ab.Effect.DealAltDamage
 	}
@@ -117,7 +117,7 @@ func gangUpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) 
 	target := a.UnitAt(e.At)
 
 	dealDmg := e.By.CurrentAtk
-	pos := e.By.Pos.Opposite(target.Pos)
+	pos := e.By.PosVal().Opposite(target.PosVal())
 	u := a.UnitAt(pos)
 	if u != nil && u.IsAlly(e.By) {
 		dealDmg += e.Ab.Effect.BonusDamage
@@ -146,8 +146,8 @@ func eliminateHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
-	from := e.By.Pos
-	to := target.Pos
+	from := e.By.PosVal()
+	to := target.PosVal()
 
 	a.relocateUnit(e.By, to)
 	a.relocateUnit(target, from)
@@ -273,7 +273,7 @@ func idolihuSpinHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err er
 }
 
 func piercingShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	cells := a.Board.Cells.Line(e.By.Pos, e.At, e.Ab.AreaRadius)
+	cells := a.Board.Cells.Line(e.By.PosVal(), e.At, e.Ab.AreaRadius)
 	for _, c := range cells {
 		unit := a.UnitAt(c.Coord)
 		if unit != nil && unit.IsEnemy(e.By) {

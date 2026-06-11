@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/ognev-dev/goplease/app/ds"
+	"github.com/ognev-dev/goplease/game/api"
 )
 
 // ─── Upgrader ─────────────────────────────────────────────────────────────────
@@ -20,18 +21,6 @@ var upgrader = websocket.Upgrader{
 	HandshakeTimeout: 10 * time.Second,
 	// In production replace with an origin whitelist check.
 	CheckOrigin: func(r *http.Request) bool { return true },
-}
-
-// ─── Wire message types (client ↔ server) ────────────────────────────────────
-
-type InMessage struct {
-	Action Action          `json:"action"`
-	Data   json.RawMessage `json:"data"`
-}
-
-type OutMessage struct {
-	Action Action `json:"action"`
-	Data   any    `json:"data"`
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -48,6 +37,7 @@ type Client struct {
 	ID       string
 	PlayerID ds.ID
 	ArenaID  ds.ID
+	Name     string
 
 	hub  *Hub
 	conn *websocket.Conn
@@ -64,8 +54,12 @@ func newClient(hub *Hub, conn *websocket.Conn, playerID ds.ID) *Client {
 	}
 }
 
+func (c *Client) SetName(name string) {
+	c.Name = name
+}
+
 // Send enqueues a message for this client (non-blocking).
-func (c *Client) Send(msg OutMessage) {
+func (c *Client) Send(msg api.OutMessage) {
 	b, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("[ws] marshal error for client %s: %v", c.ID, err)
@@ -103,10 +97,10 @@ func (c *Client) readPump() {
 			break
 		}
 
-		var msg InMessage
+		var msg api.InMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			log.Printf("[ws] invalid JSON from client %s: %v", c.ID, err)
-			c.Send(OutMessage{Action: ErrorAction, Data: map[string]string{"message": "invalid JSON"}})
+			c.Send(api.OutMessage{Action: api.ErrorAction, Data: map[string]string{"message": "invalid JSON"}})
 			continue
 		}
 
@@ -159,7 +153,7 @@ const (
 type Event struct {
 	Kind   EventKind
 	Client *Client
-	Msg    InMessage // populated only for EventMessage
+	Msg    api.InMessage
 }
 
 // ─── Hub ──────────────────────────────────────────────────────────────────────
@@ -167,13 +161,13 @@ type Event struct {
 // Envelope bundles an incoming message with its sender.
 type Envelope struct {
 	Client  *Client
-	Message InMessage
+	Message api.InMessage
 }
 
 // RoomBroadcast sends a message to every client in a specific room.
 type RoomBroadcast struct {
 	RoomID  ds.ID
-	Message OutMessage
+	Message api.OutMessage
 }
 
 // Hub is the central registry of all active WebSocket clients.
@@ -261,7 +255,7 @@ func (h *Hub) broadcastLoop() {
 }
 
 // Broadcast enqueues a message for every client in a room.
-func (h *Hub) Broadcast(roomID ds.ID, msg OutMessage) {
+func (h *Hub) Broadcast(roomID ds.ID, msg api.OutMessage) {
 	h.broadcast <- RoomBroadcast{RoomID: roomID, Message: msg}
 }
 

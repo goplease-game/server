@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/ognev-dev/goplease/app/ds"
 	"github.com/ognev-dev/goplease/game/ability"
@@ -11,7 +12,7 @@ import (
 
 const (
 	SafeZoneSize = 2 // columns at each end that are "safe zones"
-	BoardSize    = 3
+	BoardSize    = 5
 )
 
 type HexCoord struct {
@@ -46,6 +47,23 @@ func (h HexCoord) Opposite(center HexCoord) HexCoord {
 	}
 }
 
+// Neighbors returns the 6 adjacent hex coordinates around from.
+// Does not filter by board boundaries or occupancy.
+func (h HexCoord) Neighbors() []HexCoord {
+	dirs := []HexCoord{
+		{Q: 1, R: 0}, {Q: -1, R: 0},
+		{Q: 0, R: 1}, {Q: 0, R: -1},
+		{Q: 1, R: -1}, {Q: -1, R: 1},
+	}
+
+	coords := make([]HexCoord, 0, 6)
+	for _, d := range dirs {
+		coords = append(coords, HexCoord{Q: h.Q + d.Q, R: h.R + d.R})
+	}
+
+	return coords
+}
+
 type BoardCell struct {
 	Coord          HexCoord `json:"coord"`
 	Unit           *Unit    `json:"unit,omitempty"`
@@ -74,6 +92,28 @@ func (b BoardCells) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(out)
+}
+
+func (b *BoardCells) UnmarshalJSON(data []byte) error {
+	tmp := make(map[string]*BoardCell)
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+
+	if *b == nil {
+		*b = make(BoardCells, len(tmp))
+	}
+
+	for k, cell := range tmp {
+		parts := strings.Split(k, ":")
+		q, _ := strconv.Atoi(parts[0])
+		r, _ := strconv.Atoi(parts[1])
+		coord := HexCoord{Q: q, R: r}
+
+		(*b)[coord] = cell
+	}
+
+	return nil
 }
 
 func (b BoardCells) InRange(from HexCoord, rangeN int) []*BoardCell {
@@ -230,5 +270,63 @@ func lineAreaCells(cells BoardCells, from HexCoord, radius int) []*BoardCell {
 			result = append(result, cell)
 		}
 	}
+	return result
+}
+
+func ReachableCells(from HexCoord, movePoints int, board Board) []HexCoord {
+	type node struct {
+		pos  HexCoord
+		cost int
+	}
+
+	visited := make(map[HexCoord]int)
+	visited[from] = 0
+
+	queue := []node{{from, 0}}
+	result := make([]HexCoord, 0)
+
+	dirs := []HexCoord{
+		{+1, 0}, {+1, -1}, {0, -1},
+		{-1, 0}, {-1, +1}, {0, +1},
+	}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		for _, d := range dirs {
+			next := HexCoord{
+				Q: cur.pos.Q + d.Q,
+				R: cur.pos.R + d.R,
+			}
+
+			cell, ok := board.Cells[next]
+			if !ok {
+				continue
+			}
+
+			if cell.Unit != nil && next != from {
+				continue
+			}
+
+			newCost := cur.cost + 1
+			if newCost > movePoints {
+				continue
+			}
+
+			prev, seen := visited[next]
+			if seen && prev <= newCost {
+				continue
+			}
+
+			visited[next] = newCost
+			queue = append(queue, node{next, newCost})
+
+			if !seen {
+				result = append(result, next)
+			}
+		}
+	}
+
 	return result
 }

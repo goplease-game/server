@@ -1,7 +1,6 @@
 package game
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/ognev-dev/goplease/app/ds"
@@ -27,7 +26,7 @@ type Unit struct {
 	BaseMP        int `json:"base_mp"` // Move Points
 	CurrentMP     int `json:"current_mp"`
 
-	Pos HexCoord `json:"pos"`
+	Pos *HexCoord `json:"pos"`
 
 	Abilities []ability.ID                 `json:"abilities"`
 	Cooldowns map[ability.ID]int           `json:"cooldowns"`
@@ -55,7 +54,7 @@ func NewUnitFromTemplate(t unit.Template, playerID ds.ID) *Unit {
 		CurrentAP:             t.ActionPoints,
 		BaseMP:                t.MovePoints,
 		CurrentMP:             t.MovePoints,
-		Pos:                   HexCoord{},
+		Pos:                   nil,
 		Abilities:             t.Abilities,
 		Cooldowns:             make(map[ability.ID]int),
 		Statuses:              nil,
@@ -63,6 +62,17 @@ func NewUnitFromTemplate(t unit.Template, playerID ds.ID) *Unit {
 		IsDead:                false,
 		PhantomAPUsedThisTurn: 0,
 	}
+}
+
+// PosVal returns the unit's position as a value type.
+// Panics if the unit has not been placed on the board yet.
+// Use instead of dereferencing Pos directly in handlers where
+// the unit is guaranteed to be on the board.
+func (u *Unit) PosVal() HexCoord {
+	if u.Pos == nil {
+		panic(fmt.Sprintf("unit %s has no position", u.ID))
+	}
+	return *u.Pos
 }
 
 func (u *Unit) ValidateAbilityUse(id ability.ID) error {
@@ -81,10 +91,6 @@ func (u *Unit) ValidateAbilityUse(id ability.ID) error {
 
 	if !u.AbilityReady(id) {
 		return fmt.Errorf("ability %s is on cooldown", ab.ID)
-	}
-
-	if cd > 0 {
-		return errors.New("ability is on cooldown")
 	}
 
 	return nil

@@ -88,7 +88,7 @@ var sharpenedStatus = &Status{
 var hamstrungStatus = &Status{
 	Name:         "Hamstrung",
 	Description:  "Movement is reduced to 1 tile.",
-	Duration:     1,
+	Duration:     2,
 	InitialValue: 1,
 	Type:         Hamstrung,
 	Alignment:    Negative,
@@ -131,7 +131,7 @@ var provokingStatus = &Status{
 var ralliedStatus = &Status{
 	Name:         "Rallied",
 	Description:  "Attack increased by 1.",
-	Duration:     2,
+	Duration:     3,
 	InitialValue: 1,
 	Type:         Rallied,
 	Alignment:    Positive,

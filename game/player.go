@@ -7,7 +7,6 @@ import (
 type Player struct {
 	ID          ds.ID   `json:"id"`
 	Name        string  `json:"name"`
-	IsBot       bool    `json:"is_bot"`
 	PlayerIndex int     `json:"-"`     // 0 or 1
 	Units       []*Unit `json:"units"` // units at hand
 
@@ -17,11 +16,10 @@ type Player struct {
 	Ready bool `json:"-"`
 }
 
-func NewPlayer(id ds.ID, name string, index int, isBot bool, units []*Unit) *Player {
+func NewPlayer(id ds.ID, name string, index int, units []*Unit) *Player {
 	p := &Player{
 		ID:          id,
 		Name:        name,
-		IsBot:       isBot,
 		PlayerIndex: index,
 		Units:       units,
 	}
