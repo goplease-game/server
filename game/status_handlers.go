@@ -1,0 +1,406 @@
+package game
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/ognev-dev/goplease/app/ds"
+	"github.com/ognev-dev/goplease/game/ability"
+	"github.com/ognev-dev/goplease/game/ability/status"
+)
+
+type statusHandler struct {
+	onApply              func(a *Arena, from, to *Unit, v status.Value) ApplyStates
+	onRemove             func(a *Arena, u *Unit, v status.Value) ApplyStates
+	onDamageCalculated   func(a *Arena, dmg *int, sv status.Value)
+	onDamageReceived     func(a *Arena, from, to *Unit, sv status.Value) ApplyStates
+	onDamageDealt        func(a *Arena, from, to *Unit, v status.Value) ApplyStates
+	onTurnStart          func(a *Arena, u *Unit, v status.Value) ApplyStates
+	onTurnEnd            func(a *Arena, u *Unit, v status.Value) ApplyStates
+	onOtherStatusApplied func(a *Arena, from, to *Unit, applied *status.Value, v status.Value) ApplyStates
+
+	// status may mutate its value when being applied
+	mutate               func(a *Arena, v *status.Value, from, to *Unit)
+
+	// validateAbilityTarget restricts which ability/target the unit may use
+	// while this status is active. Returns an error if the choice is disallowed.
+	validateAbilityTarget func(a *Arena, caster *Unit, ab ability.Ability, target *HexCoord, sv status.Value) error
+}
+
+var statusHandlers = map[status.Type]*statusHandler{
+	status.Impatience: impatienceSH,
+	status.Provoked:       provokedSH,
+	status.Provoking:      nil, // this is just decorative status
+	status.Stunned:        stunnedSH,
+	status.Rallied:        ralliedSH,
+	status.Marked:         markedSH,
+	status.Hamstrung:      hamstrungSH,
+	status.Sharpened:      sharpenedSH,
+	status.DebuffWard:     debuffWardSH,
+	status.TemporalAnchor: temporalAnchorSH,
+	status.Frenzied:       frenziedSH,
+}
+
+var provokedSH = &statusHandler{
+	mutate: func(_ *Arena, v *status.Value, from, _ *Unit) {
+		if v.Meta == nil {
+			v.Meta = map[string]any{}
+		}
+		v.Meta["provoker"] = from.ID
+	},
+	validateAbilityTarget: func(a *Arena, caster *Unit, ab ability.Ability, target *HexCoord, sv status.Value) error {
+		if !ab.IsDirectDamage() {
+			return nil
+		}
+
+		provokerID, ok := sv.Meta["provoker"].(ds.ID)
+		if !ok {
+			return nil
+		}
+
+		provoker := a.unitByID(provokerID)
+		if provoker == nil || !provoker.Alive() {
+			return nil
+		}
+
+		if target == nil || *target != provoker.PosVal() {
+			return fmt.Errorf("unit is provoked and must target %s", provoker.Name)
+		}
+
+		return nil
+	},
+}
+
+var simpleAttackModifierSH = &statusHandler{
+	onApply: func(_ *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
+		to.CurrentAtk += sv.Value
+		state.ToAll(
+			ApplyState{ChangeAtk: new(sv.Value), ToUnitID: to.ID},
+			ApplyState{SetAtk: new(to.CurrentAtk), ToUnitID: to.ID},
+		)
+
+		return
+	},
+	onRemove: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
+		u.CurrentAtk -= sv.Value
+		state.ToAll(
+			ApplyState{ChangeAtk: new(-sv.Value), ToUnitID: u.ID},
+			ApplyState{SetAtk: new(u.CurrentAtk), ToUnitID: u.ID},
+		)
+
+		return
+	},
+}
+
+var sharpenedSH = simpleAttackModifierSH
+var frenziedSH = simpleAttackModifierSH
+
+var markedSH = &statusHandler{
+	onDamageCalculated:  func(a *Arena, dmg *int, sv status.Value) {
+		*dmg += sv.Value
+		return
+	},
+	onDamageReceived: func(a *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
+		if !to.Alive() {
+			from.CurrentAtk += sv.Value
+			state.ToAll(
+				ApplyState{ShowText: new("Hunter!"), ToUnitID: to.ID},
+				ApplyState{ChangeAtk: new(sv.Value), ToUnitID: from.ID},
+				ApplyState{SetAtk: new(from.CurrentAtk), ToUnitID: from.ID},
+			)
+		}
+
+		return
+	},
+}
+
+var ralliedSH = &statusHandler{
+	onApply: func(_ *Arena, _, to *Unit, sv status.Value) (state ApplyStates) {
+		to.CurrentAtk += sv.Value
+		state.ToAll(
+			ApplyState{ChangeAtk: new(sv.Value), ToUnitID: to.ID},
+			ApplyState{SetAtk: new(to.CurrentAtk), ToUnitID: to.ID},
+		)
+
+		return
+	},
+	onRemove: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
+		u.CurrentAtk -= sv.Value
+		state.ToAll(
+			ApplyState{ChangeAtk: new(-sv.Value), ToUnitID: u.ID},
+			ApplyState{SetAtk: new(u.CurrentAtk), ToUnitID: u.ID},
+		)
+
+		return
+	},
+	onDamageDealt: func(a *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
+		// just silently remove status without triggering it's onRemove
+		// so original bonus will stay
+		from.RemoveStatus(status.Rallied)
+
+		state.ToAll(
+			ApplyState{RemoveStatus: new(sv.Status.Type), ToUnitID: from.ID},
+		)
+		return
+	},
+}
+
+var stunnedSH = &statusHandler{
+	onTurnStart: func(_ *Arena, u *Unit, v status.Value) (state ApplyStates) {
+		state.ToSelf(ApplyState{
+			SkipTurn: true,
+			ToUnitID: u.ID,
+		})
+
+		state.ToAll(ApplyState{
+			ShowText: new("Stunned!"),
+			ToUnitID: u.ID,
+		})
+
+		return
+	},
+}
+
+var impatienceSH = &statusHandler{
+	onTurnStart: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
+		u.CurrentAtk += sv.Value
+		u.BaseAtk += sv.Value
+
+		state.ToAll(
+			ApplyState{ChangeAtk: new(sv.Value), ToUnitID: u.ID},
+			ApplyState{SetAtk: new(u.CurrentAtk), ToUnitID: u.ID},
+		)
+
+		return
+	},
+}
+
+var hamstrungSH = &statusHandler{
+	onTurnStart: func(_ *Arena, u *Unit, st status.Value) (state ApplyStates) {
+		u.CurrentMP = 0
+		state.ToAll(ApplyState{
+			SetMP:    new(st.Value),
+			ToUnitID: u.ID,
+		})
+		return
+	},
+	onRemove: func(_ *Arena, u *Unit, v status.Value) (state ApplyStates) {
+		u.CurrentMP = u.BaseMP
+		state.ToAll(ApplyState{
+			SetMP:    new(u.CurrentMP),
+			ToUnitID: u.ID,
+		})
+		return
+	},
+}
+
+var temporalAnchorSH = &statusHandler{
+	onTurnStart: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
+		u.CurrentAP += sv.Value
+		state.ToAll(
+			ApplyState{ChangeAP: new(sv.Value), ToUnitID: u.ID},
+			ApplyState{SetAP: new(u.CurrentAP), ToUnitID: u.ID},
+		)
+
+		current := u.Statuses[sv.Status.Type]
+		current.Meta = map[string]any{
+			"hp":     u.CurrentHP,
+			"shield": u.CurrentShield,
+			"pos":    u.PosVal(),
+		}
+		u.Statuses[sv.Status.Type] = current
+		return
+	},
+	onTurnEnd: func(a *Arena, u *Unit, sv status.Value) (state ApplyStates) {
+		if sv.Meta == nil {
+			return
+		}
+		if u.CurrentAP != u.BaseAP {
+			u.CurrentAP = u.BaseAP
+			state.ToAll(
+				ApplyState{SetAP: new(u.CurrentAP), ToUnitID: u.ID},
+			)
+		}
+
+		prevHP := sv.Meta["hp"].(int)
+		prevShield := sv.Meta["shield"].(int)
+		hpDiff := prevHP - u.CurrentHP
+		shDiff := prevShield - u.CurrentShield
+		prevPos := sv.Meta["pos"].(HexCoord)
+
+		if hpDiff != 0 {
+			u.CurrentHP = prevHP
+			state.ToAll(
+				ApplyState{ChangeHP: new(hpDiff), ToUnitID: u.ID},
+				ApplyState{SetHP: new(u.CurrentHP), ToUnitID: u.ID},
+			)
+		}
+		if shDiff != 0 {
+			u.CurrentShield = prevShield
+			state.ToAll(
+				ApplyState{ChangeShield: new(shDiff), ToUnitID: u.ID},
+				ApplyState{SetShield: new(u.CurrentShield), ToUnitID: u.ID},
+			)
+		}
+		if prevPos != u.PosVal() {
+			a.Board.Cells[u.PosVal()].Unit = nil
+			u.Pos = &prevPos
+			a.Board.Cells[prevPos].Unit = u
+			state.ToAll(ApplyState{MoveTo: new(prevPos), ToUnitID: u.ID})
+		}
+
+		return
+	},
+}
+
+var debuffWardSH = &statusHandler{
+	onOtherStatusApplied: func(_ *Arena, from, to *Unit, applied *status.Value, v status.Value) (state ApplyStates) {
+		if !applied.IsNegative() {
+			return
+		}
+
+		applied.Duration = 0
+		state.ToAll(ApplyState{ShowText: new("Debuff Ward!"), ToUnitID: to.ID})
+		return
+	},
+}
+
+func ApplyStatusToUnit(a *Arena, st status.Type, from, to *Unit) (state ApplyStates) {
+	inst := status.ByType(st)
+	if inst == nil {
+		log.Printf("ApplyStatusToUnit: unknown status type %s", st)
+		return
+	}
+
+	sv := status.Value{
+		UnitID:   to.ID,
+		Duration: inst.Duration,
+		Value:    inst.InitialValue,
+		Status:   inst,
+	}
+
+	statusH := statusHandlers[st]
+	if statusH != nil && statusH.mutate != nil {
+		statusH.mutate(a, &sv, from, to)
+	}
+
+	for t, v := range to.Statuses {
+		if t == st {
+			continue
+		}
+		h := statusHandlers[t]
+		if h == nil || h.onOtherStatusApplied == nil {
+			continue
+		}
+		state.With(h.onOtherStatusApplied(a, from, to, &sv, v))
+		if sv.Duration == 0 {
+			return
+		}
+	}
+
+	// If status already exists — just refresh duration, do not call onApply again.
+	_, alreadyActive := to.Statuses[st]
+
+	to.AddStatus(sv)
+	state.ToAll(ApplyState{
+		AddStatus:     new(st),
+		AddStatusMeta: sv.Meta,
+		ToUnitID:      to.ID,
+	})
+
+	if !alreadyActive && statusH != nil && statusH.onApply != nil {
+		state.With(statusH.onApply(a, from, to, sv))
+	}
+
+	return state
+}
+
+func removeStatusFromUnit(a *Arena, st status.Type, u *Unit) (state ApplyStates) {
+	sv, ok := u.Statuses[st]
+	if !ok {
+		log.Printf("removeStatusFromUnit: unit missing status: %s", st)
+		return
+	}
+
+	u.RemoveStatus(st)
+
+	h := statusHandlers[st]
+	if h != nil && h.onRemove != nil {
+		state.With(h.onRemove(a, u, sv))
+	}
+
+	state.ToAll(ApplyState{
+		RemoveStatus: new(st),
+		ToUnitID:     u.ID,
+	})
+
+	return
+}
+
+func handleOnTurnStartStatuses(a *Arena, unit *Unit) (state ApplyStates) {
+	for t, v := range unit.Statuses {
+		h, ok := statusHandlers[t]
+		if !ok || h == nil {
+			continue
+		}
+
+		if h.onTurnStart == nil {
+			continue
+		}
+
+		state.With(h.onTurnStart(a, unit, v))
+	}
+
+	return
+}
+
+func handleOnDamageDealtStatuses(a *Arena, from, to *Unit) (state ApplyStates) {
+	for t, v := range from.Statuses {
+		h, ok := statusHandlers[t]
+		if !ok || h == nil {
+			continue
+		}
+
+		if h.onDamageDealt == nil {
+			continue
+		}
+
+		state.With(h.onDamageDealt(a, from, to, v))
+	}
+
+	return
+}
+
+func handleOnDamageReceivedStatuses(a *Arena, from, to *Unit) (state ApplyStates) {
+	for t, v := range to.Statuses {
+		h, ok := statusHandlers[t]
+		if !ok || h == nil {
+			continue
+		}
+
+		if h.onDamageReceived == nil {
+			continue
+		}
+
+		state.With(h.onDamageReceived(a, from, to, v))
+	}
+
+	return
+}
+
+func triggerStatusOnDamageCalculated(a *Arena, u *Unit, dmg *int)  {
+	for t, v := range u.Statuses {
+		h, ok := statusHandlers[t]
+		if !ok || h == nil {
+			continue
+		}
+
+		if h.onDamageCalculated == nil {
+			continue
+		}
+
+		h.onDamageCalculated(a, dmg, v)
+	}
+
+	return
+}

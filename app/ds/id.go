@@ -48,6 +48,11 @@ func (id ID) String() string {
 	return uuid.UUID(id).String()
 }
 
+// IsZero implements the omitzero interface for JSON serialization.
+func (id ID) IsZero() bool {
+	return id.IsNil()
+}
+
 // Value implements driver.Valuer to allow ID to be used in SQL queries.
 func (id ID) Value() (driver.Value, error) {
 	if id.IsNil() {

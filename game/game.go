@@ -1,13 +1,19 @@
 package game
 
-const MaxTurns = 20
+const (
+	MaxTurns                        = 20 // TODO
+	TurnTimeSeconds                 = 999
+	UnitsPerPlacementPhase          = 3
+	MaxPhantomAPPerUnitPerTurn      = 3
+	ApplyImpatienceStatusAfterRound = 10
+)
 
-type Phase string
+type RoundPhase int
 
 const (
-	PhaseUnitPlacement Phase = "unit_placement" // current player places units
-	PhaseUnitActing    Phase = "unit_acting"    // current player playing with unit
-	PhaseGameOver      Phase = "game_over"
+	PlayPhase RoundPhase = iota
+	PlacementPhase
+	GameOverPhase
 )
 
 type EndReason string
@@ -16,12 +22,3 @@ const (
 	EndNoUnits   EndReason = "no_units"
 	EndTurnLimit EndReason = "turn_limit"
 )
-
-type NewGamePayload struct {
-	RoomID   string  `json:"room_id"`
-	Phase    Phase   `json:"phase"`
-	IsMyTurn bool    `json:"is_my_turn"`
-	Board    Board   `json:"board"`
-	Player   *Player `json:"player"`
-	Opponent string  `json:"opponent"`
-}

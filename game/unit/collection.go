@@ -1,7 +1,6 @@
 package unit
 
 import (
-	"github.com/ognev-dev/goplease/app/ds"
 	ab "github.com/ognev-dev/goplease/game/ability"
 )
 
@@ -9,31 +8,32 @@ import (
 Unit Balance:
 Base Profile (0 Points):
 All units start with a baseline set of characteristics:
-HP: 9
-ATK: 3
+HP: 15
+ATK: 2
 Range: 1 (Melee)
 MP: 3
-In short 9/3/1/3
+In short 15/2/1/3
 
 Balance Currency:
 To modify the base profile, units must trade "Weight Points." The total balance must always equal 0.
 
-3 HP = 1 Point
+5 HP = 1 Point
 1 ATK = 1 Point
 1 MP = 1 Point
-Ranged (max range of 3) = 1 Point (Fixed cost for switching from Melee to Ranged)
+Ranged Upgrade (+2 Range) = 1 Point (Fixed cost to switch from Melee to Ranged, increasing base Range from 1 to 3)
 
 Constraints & Limits:
-Min HP: 3
+Min HP: 5
 Min ATK: 1
 Min MP: 1
 Max MP: 4
+Max Base Range: 3
 
 Examples of balanced archetypes:
-Tank : 12/2/1/3 (+1 HP Point, -1 ATK Point)
-Ranger: 6/4/3/2 (-1 HP Point, -1 MP Point, +1 ATK Point, +1 Ranged Point)
-Rogue: 6/3/1/4 (-1 HP Point, +1 MP Point)
-Support: 9/2/3/3 (-1 ATK Point, +1 Ranged Point)
+Tank: 40/2/1/3 ( +1 HP Point (30->40), -1 ATK Point (3->2))
+Ranger: 20/4/3/2 (-1 HP Point (30->20), -1 MP Point (3->2), +1 ATK Point (3->4), +1 Ranged Upgrade (1->3))
+Rogue: 20/3/1/4 (-1 HP Point (30->20), +1 MP Point (3->4))
+Support: 30/2/3/3 (-1 ATK Point (3->2), +1 Ranged Upgrade (1->3))
 */
 
 // TODO
@@ -67,11 +67,11 @@ var DefaultTemplates = []Template{
 		ID:          1,
 		Name:        "Bas",
 		Description: "An immovable wall who protects allies by absorbing damage, locking down enemies, and holding the front line at all costs.",
-		HP:          12, Attack: 2, AttackRange: 1, MovePoints: 3,
+		HP:          20, Attack: 1, AttackRange: 1, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
-			ab.Phalanx,
+			ab.Fortify,
 			ab.Provoke,
 			ab.ShieldBash,
 			ab.UndyingWill,
@@ -81,12 +81,12 @@ var DefaultTemplates = []Template{
 		ID:          2,
 		Name:        "Grit",
 		Description: "A fierce frontline brawler who thrives in the thick of battle, dealing heavy area damage and breaking enemy formations.",
-		HP:          6, Attack: 4, AttackRange: 1, MovePoints: 3,
+		HP:          10, Attack: 3, AttackRange: 1, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
 			ab.BattleCry,
-			ab.Cleave,
+			ab.IdolihuSpin,
 			ab.PowerPush,
 			ab.Frenzy,
 		},
@@ -95,7 +95,7 @@ var DefaultTemplates = []Template{
 		ID:          3,
 		Name:        "Fletch",
 		Description: "A long-range damage dealer specializing in picking off high-priority targets and providing suppressing cover fire from safety.",
-		HP:          6, Attack: 4, AttackRange: 3, MovePoints: 2,
+		HP:          10, Attack: 3, AttackRange: 3, MovePoints: 2,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicRangeAttack,
@@ -109,7 +109,7 @@ var DefaultTemplates = []Template{
 		ID:          4,
 		Name:        "Silver",
 		Description: "A highly mobile assassin designed to slip behind enemy lines and eliminate vulnerable targets with devastating backstabs.",
-		HP:          6, Attack: 3, AttackRange: 1, MovePoints: 4,
+		HP:          10, Attack: 2, AttackRange: 1, MovePoints: 4,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMeleeAttack,
@@ -123,21 +123,21 @@ var DefaultTemplates = []Template{
 		ID:          5,
 		Name:        "Mist",
 		Description: "A tactical spellcaster who manipulates time and space to control the battlefield, weaken enemies, and reposition units.",
-		HP:          9, Attack: 3, AttackRange: 3, MovePoints: 2,
+		HP:          10, Attack: 2, AttackRange: 3, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMagicAttack,
 			ab.Translocation,
 			ab.TimeWarp,
 			ab.Purge,
-			ab.ArcaneChaos,
+			ab.FocusField,
 		},
 	},
 	{
 		ID:          6,
 		Name:        "July",
-		Description: "A support and healer focused on keeping the team alive, removing negative effects, and sustaining allies through long battles.",
-		HP:          9, Attack: 2, AttackRange: 3, MovePoints: 3,
+		Description: "Loves fixing leaks, cleans up messes, and keeps everyone from dying, sometimes.",
+		HP:          15, Attack: 1, AttackRange: 3, MovePoints: 3,
 		ActionPoints: 1,
 		Abilities: []ab.ID{
 			ab.BasicMagicAttack,
@@ -147,14 +147,4 @@ var DefaultTemplates = []Template{
 			ab.BottomlessVial,
 		},
 	},
-}
-
-func StartingUnits(playerID ds.ID) []*Unit {
-	units := make([]*Unit, len(DefaultTemplates))
-
-	for i, t := range DefaultTemplates {
-		units[i] = NewUnitFromTemplate(t, playerID)
-	}
-
-	return units
 }

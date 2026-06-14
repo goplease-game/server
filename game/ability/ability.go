@@ -1,8 +1,6 @@
 package ability
 
-import (
-	"github.com/ognev-dev/goplease/game/ability/effect"
-)
+import "github.com/ognev-dev/goplease/game/ability/status"
 
 type ID string
 
@@ -29,9 +27,7 @@ type AreaType string
 
 const (
 	AreaLine   AreaType = "line"
-	AreaCone   AreaType = "cone"
 	AreaCircle AreaType = "circle"
-	AreaArc    AreaType = "arc"
 )
 
 type TargetMode string
@@ -52,6 +48,7 @@ type Ability struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Cooldown    int    `json:"cooldown"`
+	DamageHint  string `json:"damage_hint"`
 
 	Range      int            `json:"range"`
 	TargetMode TargetMode     `json:"target_mode"`
@@ -59,11 +56,23 @@ type Ability struct {
 	Area       AreaType       `json:"area"`
 	AreaRadius int            `json:"area_radius"`
 
-	Effects []effect.Effect `json:"effects"`
+	Effect Effect `json:"effect"`
+}
+
+type Effect struct {
+	HealHP        int         `json:"heal_hp"`
+	AddHP         int         `json:"add_hp"`
+	AddShield     int         `json:"add_shield"`
+	AddAP         int         `json:"add_ap"`
+	AddAtk        int         `json:"add_atk"`
+	DealDamage    int         `json:"deal_damage"`
+	DealAltDamage int         `json:"deal_alt_damage"`
+	BonusDamage   int         `json:"bonus_damage"`
+	ApplyStatus   status.Type `json:"apply_status"`
 }
 
 func ByID(id ID) Ability {
-	s, ok := Abilities[id]
+	s, ok := abilities[id]
 	if ok {
 		s.ID = id
 	}
@@ -71,6 +80,23 @@ func ByID(id ID) Ability {
 	return s
 }
 
-func Effects(e ...effect.Effect) []effect.Effect {
-	return e
+func (a Ability) IsBasicAttack() bool {
+	switch a.ID {
+	case BasicMeleeAttack, BasicRangeAttack, BasicMagicAttack:
+		return true
+	}
+
+	return false
+}
+
+func (a Ability) IsDirectDamage() bool {
+	if a.IsBasicAttack() {
+		return true
+	}
+
+	if a.Activation == SelectEnemy && a.Effect.DealDamage != 0 {
+		return true
+	}
+
+	return false
 }
