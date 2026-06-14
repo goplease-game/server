@@ -182,6 +182,11 @@ func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 		return
 	}
 
+	gs.hub.Broadcast(ar.ID, api.OutMessage{
+		Action: api.ActiveUnitChangedAction,
+		Data:   game.ActiveUnitChangedPayload{UnitID: activeUnit.ID},
+	})
+
 	owner, ownerIdx := ar.PlayerByUnitID(activeUnit.ID)
 	if owner == nil {
 		return

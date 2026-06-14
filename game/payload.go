@@ -39,3 +39,7 @@ type UseAbilityPayload struct {
 	AbilityID ability.ID `json:"ability_id"`
 	Target    *HexCoord  `json:"target,omitempty"`
 }
+
+type ActiveUnitChangedPayload struct {
+	UnitID ds.ID `json:"unit_id"`
+}
