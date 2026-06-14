@@ -12,12 +12,13 @@ const (
 	Provoking      Type = "provoking"
 	Stunned        Type = "stunned"
 	Rallied        Type = "rallied"
-	Exposed        Type = "exposed"
+	Marked         Type = "exposed"
 	Hamstrung      Type = "hamstrung"
 	Sharpened      Type = "sharpened"
 	DebuffWard     Type = "debuff_ward"
 	TemporalAnchor Type = "temporal_anchor"
 	Frenzied       Type = "frenzied"
+	Impatience     Type = "impatience"
 )
 
 const (
@@ -86,20 +87,19 @@ var sharpenedStatus = &Status{
 }
 
 var hamstrungStatus = &Status{
-	Name:         "Hamstrung",
-	Description:  "Movement is reduced to 1 tile.",
-	Duration:     2,
-	InitialValue: 1,
-	Type:         Hamstrung,
-	Alignment:    Negative,
+	Name:        "Hamstrung",
+	Description: "Took an arrow to the knee and cannot move.",
+	Duration:    1,
+	Type:        Hamstrung,
+	Alignment:   Negative,
 }
 
-var exposedStatus = &Status{
-	Name:         "Exposed",
-	Description:  "Attacks against this unit deal +1 damage.",
-	Duration:     3,
+var markedStatus = &Status{
+	Name:         "Marked",
+	Description:  "Takes +1 damage from attacks. The unit that kills this unit permanently gains +1 Attack.",
+	Duration:     Permanent,
 	InitialValue: 1,
-	Type:         Exposed,
+	Type:         Marked,
 	Alignment:    Negative,
 }
 
@@ -130,8 +130,8 @@ var provokingStatus = &Status{
 
 var ralliedStatus = &Status{
 	Name:         "Rallied",
-	Description:  "Attack increased by 1.",
-	Duration:     3,
+	Description:  "+1 Attack. Attacking an enemy makes this bonus permanent.",
+	Duration:     1,
 	InitialValue: 1,
 	Type:         Rallied,
 	Alignment:    Positive,
@@ -151,6 +151,15 @@ var frenziedStatus = &Status{
 	Description:  "You are frenzied because 2 or more opponents are nearby. Grants +1 Attack while active.",
 	InitialValue: 1,
 	Type:         Frenzied,
+	Alignment:    Positive,
+	Duration:     Permanent,
+}
+
+var impatienceStatus = &Status{
+	Name:         "Impatience",
+	Description:  "Can't take this anymore. +1 Attack each turn until we're done here.",
+	InitialValue: 1,
+	Type:         Impatience,
 	Alignment:    Positive,
 	Duration:     Permanent,
 }

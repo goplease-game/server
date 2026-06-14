@@ -238,11 +238,8 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 		return
 	}
 	if u.OwnerID != playerID {
-		err = fmt.Errorf("not your turn")
 		return
 	}
-
-
 
 	// Decrease status durations
 	for t, sv := range u.Statuses {
@@ -258,7 +255,10 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 
 		sv.Duration--
 		if sv.Duration < 1 {
-			delete(u.Statuses, t)
+			if h != nil && h.onRemove != nil {
+				state.With(h.onRemove(a, u, sv))
+			}
+			u.RemoveStatus(t)
 			state.ToAll(ApplyState{RemoveStatus: &t, ToUnitID: u.ID})
 		} else {
 			u.Statuses[t] = sv
@@ -396,13 +396,11 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 	defer func() {
 		if !state.IsEmpty() {
 			state.With(triggers.DamageReceived(a, source, target))
+			state.With(triggers.DamageDealt(a, source, target))
 		}
 	}()
 
-	eff, ok := target.Statuses[status.Exposed]
-	if ok {
-		val += eff.Value
-	}
+	triggerStatusOnDamageCalculated(a, target, &val)
 
 	var shieldRemoved int
 	if target.CurrentShield > 0 {

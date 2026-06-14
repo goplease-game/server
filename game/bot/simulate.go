@@ -3,6 +3,7 @@ package bot
 import (
 	"github.com/ognev-dev/goplease/game"
 	"github.com/ognev-dev/goplease/game/ability"
+	"github.com/ognev-dev/goplease/game/ability/status"
 )
 
 type simAction struct {
@@ -84,13 +85,22 @@ func countAlliesInRadius(b *Bot, u *game.Unit, center game.HexCoord, radius int)
 }
 
 // priorityTarget returns the current priority target (PT) for the given unit.
-// Selects the closest enemy; breaks ties by choosing the one with the lowest HP.
+// Selects enemies with the HuntersMark status first. If none are marked,
+// chooses the closest enemy, breaking ties by lowest HP.
 func (b *Bot) priorityTarget(u *game.Unit) *game.Unit {
 	enemies := b.enemies(u)
 	if len(enemies) == 0 {
 		return nil
 	}
 
+	// 1. Absolute priority: Find any enemy with Hunter's Mark
+	for _, e := range enemies {
+		if _, hasMark := e.Statuses[status.Marked]; hasMark {
+			return e
+		}
+	}
+
+	// 2. Default fallback: Closest with lowest HP
 	var best *game.Unit
 	for _, e := range enemies {
 		if best == nil {

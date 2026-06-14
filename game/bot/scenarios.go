@@ -5,6 +5,7 @@ import (
 
 	"github.com/ognev-dev/goplease/game"
 	"github.com/ognev-dev/goplease/game/ability"
+	"github.com/ognev-dev/goplease/game/ability/status"
 )
 
 const (
@@ -20,8 +21,8 @@ type scenario func(b *Bot, u *game.Unit) *simAction
 
 var simScenariosByUnit = map[int][]scenario{
 	BasID: {
-		scenarioBasFortify,
 		scenarioBasShieldBash,
+		scenarioBasFortify,
 		scenarioBasProvokeDefendSquishies,
 		scenarioBasProvoke,
 	},
@@ -34,11 +35,11 @@ var simScenariosByUnit = map[int][]scenario{
 		scenarioFletchBestAbility,
 	},
 	SilverID: {
-		scenarioSilverShadowStepForGangUp,
+		scenarioSilverShadowStep,
 		scenarioSilverBestAbility,
 	},
 	MistID: {
-		scenarioMistTranslocationRescueAlly,
+		//scenarioMistTranslocationRescueAlly,
 		scenarioMistPurge,
 		scenarioMistMoveToAlly,
 	},
@@ -253,22 +254,30 @@ func scenarioGritPowerPush(b *Bot, u *game.Unit) *simAction {
 	return b.simulateMoveAndUseAbility(u, moveTo, ability.PowerPush, target.PosVal())
 }
 
-// scenarioGritBattleCry finds the best position to hit as many allies as possible
-// with Battle Cry. Only activates when the priority target is out of reach.
+// scenarioGritBattleCry uses Battle Cry if an enemy is within 2 cells
+// and at least one ally (including self or others) is affected by the AoE.
 func scenarioGritBattleCry(b *Bot, u *game.Unit) *simAction {
 	if !u.AbilityReady(ability.BattleCry) {
 		return nil
 	}
 
-	target := b.priorityTarget(u)
-	if target != nil && b.canReach(u, target, ability.ByID(ability.BasicMeleeAttack).Range) {
-		// Priority target is reachable — attacking is more valuable.
+	// Check if any enemy is within 2 cells from Grit's current position
+	enemyClose := false
+	for _, enemy := range b.enemies(u) {
+		if u.PosVal().Distance(enemy.PosVal()) <= 2 {
+			enemyClose = true
+			break
+		}
+	}
+
+	if !enemyClose {
 		return nil
 	}
 
 	battleCryRadius := ability.ByID(ability.BattleCry).AreaRadius
 	bestPos, allyCount := findBestPositionForAOE(b, u, battleCryRadius, countAlliesInRadius)
-	if allyCount == 0 {
+
+	if allyCount < 2 {
 		return nil
 	}
 
@@ -308,17 +317,26 @@ func scenarioGritIdolihuSpin(b *Bot, u *game.Unit) *simAction {
 // Fletch — Ranger
 // =============================================================================
 
-// scenarioFletchBestAbility tries each ability in priority order and uses
-// the first one that can reach the priority target.
-// Priority: Hunter's Mark > Hamstring Shot > Piercing Shot > basic attack.
+// scenarioFletchBestAbility tries each ability in priority order.
+// Uses Hunter's Mark if ready and the target isn't already marked.
 func scenarioFletchBestAbility(b *Bot, u *game.Unit) *simAction {
 	target := b.priorityTarget(u)
 	if target == nil {
 		return nil
 	}
 
+	// Special check for Hunter's Mark: do not cast if target already has it
+	if u.AbilityReady(ability.HuntersMark) {
+		if _, alreadyMarked := target.Statuses[status.Marked]; !alreadyMarked {
+			moveTo, targetPos, ok := findAbilityTarget(b, u, target, ability.HuntersMark)
+			if ok {
+				return b.simulateMoveAndUseAbility(u, moveTo, ability.HuntersMark, targetPos)
+			}
+		}
+	}
+
+	// Fallback to other regular attacks if Mark is on CD or already applied
 	prioritized := []ability.ID{
-		ability.HuntersMark,
 		ability.HamstringShot,
 		ability.PiercingShot,
 		ability.BasicRangeAttack,
@@ -342,10 +360,10 @@ func scenarioFletchBestAbility(b *Bot, u *game.Unit) *simAction {
 // Silver — Rogue
 // =============================================================================
 
-// scenarioSilverShadowStepForGangUp teleports Silver to the opposite side of the
-// priority target relative to the nearest ally, setting up Gang Up bonus damage.
-func scenarioSilverShadowStepForGangUp(b *Bot, u *game.Unit) *simAction {
-	if !u.AbilityReady(ability.ShadowStep) || !u.AbilityReady(ability.GangUp) {
+// scenarioSilverShadowStep always uses Shadow Step if ready,
+// ensuring landing on a cell adjacent to the priority target.
+func scenarioSilverShadowStep(b *Bot, u *game.Unit) *simAction {
+	if !u.AbilityReady(ability.ShadowStep) {
 		return nil
 	}
 
@@ -354,31 +372,14 @@ func scenarioSilverShadowStepForGangUp(b *Bot, u *game.Unit) *simAction {
 		return nil
 	}
 
-	// Find an ally adjacent to the target.
-	var allyOpposite *game.Unit
-	for _, ally := range b.state.queue {
-		if !ally.IsAlly(u) || ally.ID == u.ID {
-			continue
-		}
-		if ally.PosVal().Distance(target.PosVal()) == 1 {
-			allyOpposite = ally
-			break
-		}
-	}
-	if allyOpposite == nil {
+	// Find any free cell adjacent to the priority target within Shadow Step range
+	shadowStepRange := ability.ByID(ability.ShadowStep).Range
+	dest, ok := b.findFreeCellAdjacentTo(u, target, shadowStepRange)
+	if !ok {
 		return nil
 	}
 
-	// The ideal position is directly opposite the ally relative to target.
-	dest := allyOpposite.PosVal().Opposite(target.PosVal())
-	unit := b.unitAt(dest)
-	if unit != nil {
-		return nil
-	}
-	if u.PosVal().Distance(dest) > ability.ByID(ability.ShadowStep).Range {
-		return nil
-	}
-
+	// Teleport always happens from current position (u.PosVal()) to the destination adjacent to enemy
 	return b.simulateMoveAndUseAbility(u, u.PosVal(), ability.ShadowStep, dest)
 }
 
@@ -455,14 +456,29 @@ func scenarioMistTranslocationRescueAlly(b *Bot, u *game.Unit) *simAction {
 	return nil
 }
 
-// scenarioMistPurge uses Purge on the closest enemy that has active positive effects.
+// scenarioMistPurge uses Purge to cleanse Rallied or TemporalAnchor buffs from enemies.
 func scenarioMistPurge(b *Bot, u *game.Unit) *simAction {
 	if !u.AbilityReady(ability.Purge) {
 		return nil
 	}
 
 	purgeRange := ability.ByID(ability.Purge).Range
-	target := findClosestEnemyWithBuffs(b, u, purgeRange)
+	enemies := b.enemies(u)
+
+	var target *game.Unit
+	for _, e := range enemies {
+		// Check if enemy has either Rallied (from Grit) or Temporal Anchor
+		_, hasRallied := e.Statuses[status.Rallied]
+		_, hasAnchor := e.Statuses[status.TemporalAnchor]
+
+		if hasRallied || hasAnchor {
+			if u.PosVal().Distance(e.PosVal()) <= u.CurrentMP+purgeRange {
+				target = e
+				break
+			}
+		}
+	}
+
 	if target == nil {
 		return nil
 	}
@@ -560,14 +576,29 @@ func scenarioJulyHeal(b *Bot, u *game.Unit) *simAction {
 	return b.simulateUseAbility(u, ability.Heal, target.PosVal())
 }
 
-// scenarioJulyPurify cleanses the first ally within range that has an active negative status.
+// scenarioJulyPurify prioritizes cleansing Hunter's Mark from teammates.
 func scenarioJulyPurify(b *Bot, u *game.Unit) *simAction {
 	if !u.AbilityReady(ability.Purify) {
 		return nil
 	}
 
 	purifyRange := ability.ByID(ability.Purify).Range
-	target := b.allyWithDebuffInRange(u, purifyRange)
+	candidates := append(b.alliesInRange(u, purifyRange), u)
+
+	var target *game.Unit
+	for _, ally := range candidates {
+		// High priority: remove the deadly Hunter's Mark
+		if _, hasMark := ally.Statuses[status.Marked]; hasMark {
+			target = ally
+			break
+		}
+	}
+
+	// Fallback to any other debuff if no one is marked
+	if target == nil {
+		target = b.allyWithDebuffInRange(u, purifyRange)
+	}
+
 	if target == nil {
 		return nil
 	}

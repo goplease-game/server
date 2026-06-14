@@ -318,7 +318,6 @@ func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
 	}
 
 	pl, _ := ar.PlayerByID(c.PlayerID)
-
 	prevPos := "null"
 	uName := "null"
 	u := ar.ActingUnit()

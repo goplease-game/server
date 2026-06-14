@@ -78,11 +78,11 @@ func fortifyHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
 
 // TODO test this for both sides + client behaviour
 func provokeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
-	state.With(applyStatusToUnit(a, status.Provoking, e.By, e.By))
+	state.With(ApplyStatusToUnit(a, status.Provoking, e.By, e.By))
 
 	units := a.EnemiesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
-		state.With(applyStatusToUnit(a, status.Provoked, e.By, u))
+		state.With(ApplyStatusToUnit(a, status.Provoked, e.By, u))
 	}
 
 	return state, nil
@@ -91,7 +91,7 @@ func provokeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error)
 func shieldBashHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
-	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 	return
 }
 
@@ -101,12 +101,13 @@ func powerPushHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 	dealDmg := e.Ab.Effect.DealDamage
 	pos := e.By.PosVal().Opposite(target.PosVal())
 
-	if a.UnitAt(pos) == nil {
+	cell, exists := a.Board.Cells[pos]
+	if exists && cell.Unit == nil {
 		state.With(a.relocateUnit(target, pos))
 		state.ToAll(ApplyState{MoveTo: new(pos), ToUnitID: target.ID})
-		target.Pos = &pos
 	} else {
 		dealDmg = e.Ab.Effect.DealAltDamage
+		state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 	}
 
 	state.With(a.DealDamageToUnit(e.By, target, dealDmg))
@@ -136,7 +137,7 @@ func eliminateHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 		e.By.CurrentAP += ap
 		state.ToAll(
 			ApplyState{ChangeAP: new(ap), ToUnitID: e.By.ID},
-			ApplyState{SetAP: new(ap), ToUnitID: e.By.ID},
+			ApplyState{SetAP: new(e.By.CurrentAP), ToUnitID: e.By.ID},
 		)
 	}
 
@@ -149,10 +150,18 @@ func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err 
 	from := e.By.PosVal()
 	to := target.PosVal()
 
-	a.relocateUnit(e.By, to)
-	a.relocateUnit(target, from)
+	// Clear both cells first
+	a.Board.Cells[from].Unit = nil
+	a.Board.Cells[to].Unit = nil
 
-	state.ToAll(
+	// Then place both
+	e.By.Pos = &to
+	a.Board.Cells[to].Unit = e.By
+
+	target.Pos = &from
+	a.Board.Cells[from].Unit = target
+
+	state.ToOpp(
 		ApplyState{MoveTo: new(to), ToUnitID: e.By.ID},
 		ApplyState{MoveTo: new(from), ToUnitID: target.ID},
 	)
@@ -163,7 +172,7 @@ func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err 
 func timeWarpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
-	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 	return
 }
 
@@ -189,7 +198,7 @@ func purifyHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) 
 	}
 
 	state.With(healUnit(target, e.Ab.Effect.HealHP))
-	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 
 	return
 }
@@ -287,7 +296,7 @@ func piercingShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err e
 func battleCryHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	units := a.AlliesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
-		state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, u))
+		state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, u))
 	}
 
 	return
@@ -296,23 +305,30 @@ func battleCryHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 func shadowStepHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	a.relocateUnit(e.By, e.At)
 
-	state.ToOpp(ApplyState{MoveTo: new(e.At), ToUnitID: e.By.ID})
-	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, e.By))
+	enemies := a.EnemiesInRange(e.By, e.Ab.AreaRadius)
+	if len(enemies) > 0 {
+		e.By.CurrentAtk += e.Ab.Effect.AddAtk
+		state.ToAll(
+			ApplyState{ChangeAtk: new(e.Ab.Effect.AddAtk), ToUnitID: e.By.ID},
+			ApplyState{SetAtk: new(e.By.CurrentAtk), ToUnitID: e.By.ID},
+		)
+	}
 
+	state.ToOpp(ApplyState{MoveTo: new(e.At), ToUnitID: e.By.ID})
 	return
 }
 
 func huntersMarkHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
-	return applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target), nil
+	return ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target), nil
 }
 
 func hamstringShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
 	state.With(a.DealDamageToUnit(e.By, target, e.Ab.Effect.DealDamage))
-	state.With(applyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
+	state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 
 	return
 }

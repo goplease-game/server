@@ -64,6 +64,7 @@ type Effect struct {
 	AddHP         int         `json:"add_hp"`
 	AddShield     int         `json:"add_shield"`
 	AddAP         int         `json:"add_ap"`
+	AddAtk        int         `json:"add_atk"`
 	DealDamage    int         `json:"deal_damage"`
 	DealAltDamage int         `json:"deal_alt_damage"`
 	BonusDamage   int         `json:"bonus_damage"`

@@ -2,6 +2,7 @@ package game
 
 import (
 	"github.com/ognev-dev/goplease/game/ability"
+	"github.com/ognev-dev/goplease/game/ability/status"
 )
 
 // because of initialization cycle
@@ -18,11 +19,16 @@ func init() {
 			useCoverFireAbility,
 			useOpportunityAbility,
 			useBottomlessVialAbility,
+			handleOnDamageReceivedStatuses,
+		},
+		onDamageDealt: []onDamageDealtHandler{
+			handleOnDamageDealtStatuses,
 		},
 		onTurnStart: []onTurnStartHandler{
 			useFocusFieldAbility,
 			recalculateFrenzyAbility,
 			handleOnTurnStartStatuses,
+			handleImpatience,
 		},
 	}
 }
@@ -38,6 +44,9 @@ type onMoveHandler func(*Arena, *Unit) ApplyStates
 // onDamageReceivedHandler defines a function signature for triggers that execute when a unit takes damage.
 type onDamageReceivedHandler func(a *Arena, source, target *Unit) ApplyStates
 
+// onDamageDealtHandler defines a function signature for triggers that execute when a unit deal damage.
+type onDamageDealtHandler func(a *Arena, source, target *Unit) ApplyStates
+
 // onTurnStartHandler defines a function signature for triggers that execute at the beginning of a unit's turn.
 type onTurnStartHandler func(*Arena, *Unit) ApplyStates
 
@@ -46,6 +55,7 @@ type TriggerRegistry struct {
 	onDeath          []onDeathHandler
 	onMove           []onMoveHandler
 	onDamageReceived []onDamageReceivedHandler
+	onDamageDealt    []onDamageDealtHandler
 	onTurnStart      []onTurnStartHandler
 }
 
@@ -71,6 +81,15 @@ func (r *TriggerRegistry) UnitMoved(a *Arena, u *Unit) (state ApplyStates) {
 func (r *TriggerRegistry) DamageReceived(a *Arena, source, target *Unit) (st ApplyStates) {
 	for _, handler := range r.onDamageReceived {
 		st.With(handler(a, source, target))
+	}
+
+	return
+}
+
+// DamageDealt executes all registered handlers for an event where a target unit deals damage.
+func (r *TriggerRegistry) DamageDealt(a *Arena, from, to *Unit) (st ApplyStates) {
+	for _, handler := range r.onDamageDealt {
+		st.With(handler(a, from, to))
 	}
 
 	return
@@ -140,7 +159,7 @@ func recalculateFrenzyAbility(a *Arena, _ *Unit) (state ApplyStates) {
 		// Add
 		if enemies >= 2 && !isFrenzied {
 			state.With(
-				applyStatusToUnit(a, ab.Effect.ApplyStatus, u, u),
+				ApplyStatusToUnit(a, ab.Effect.ApplyStatus, u, u),
 			)
 		}
 	}
@@ -187,8 +206,12 @@ func useOpportunityAbility(a *Arena, source, target *Unit) (state ApplyStates) {
 	id := ability.Opportunity
 	ab := ability.ByID(id)
 
-	unitsWithOpportunity := a.EnemiesInRangeHavingAbility(source, ab.Range, id)
-	for _, u := range unitsWithOpportunity {
+	cells := a.Board.Cells.InRangeHavingUnitAbility(target.PosVal(), ab.Range, id)
+	for _, c := range cells {
+		u := c.Unit
+		if !u.Alive() || u.IsEnemy(source) {
+			continue
+		}
 		if u.ID == source.ID { // cannot have opportunity for your own attack
 			continue
 		}
@@ -258,7 +281,7 @@ func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 		}
 
 		if u.ID == target.ID {
-			continue // cannot use on self
+			continue // cannot trigger on the unit that has the ability
 		}
 
 		u.SetCooldown(id, ab.Cooldown)
@@ -273,6 +296,19 @@ func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 		st.With(healUnit(target, ab.Effect.HealHP))
 
 		return // apply only once
+	}
+
+	return
+}
+
+func handleImpatience(a *Arena, unit *Unit) (state ApplyStates) {
+	if a.CurrentRound < ApplyImpatienceStatusAfterRound {
+		return
+	}
+
+	st := status.Impatience
+	if !unit.HasStatus(st) {
+		return ApplyStatusToUnit(a, st, unit, unit)
 	}
 
 	return

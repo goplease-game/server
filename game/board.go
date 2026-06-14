@@ -12,7 +12,7 @@ import (
 
 const (
 	SafeZoneSize = 2 // columns at each end that are "safe zones"
-	BoardSize    = 5
+	BoardSize    = 4
 )
 
 type HexCoord struct {
@@ -73,6 +73,11 @@ type BoardCell struct {
 
 type Board struct {
 	Cells BoardCells `json:"cells"`
+}
+
+func (b *Board) CellExists(at HexCoord) bool {
+	_, ok := b.Cells[at]
+	return ok
 }
 
 type BoardCells map[HexCoord]*BoardCell

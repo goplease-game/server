@@ -19,8 +19,8 @@ const (
 
 func setupGame(t *testing.T) (*game.Arena, *game.Player, *game.Player) {
 	t.Helper()
-	p1 := game.NewPlayer(ds.NewID(), "Player 1", 0, false, game.StartingUnits(ds.NewID()))
-	p2 := game.NewPlayer(ds.NewID(), "Player 2", 1, false, game.StartingUnits(ds.NewID()))
+	p1 := game.NewPlayer(ds.NewID(), "Player 1", 0, game.StartingUnits(ds.NewID()))
+	p2 := game.NewPlayer(ds.NewID(), "Player 2", 1, game.StartingUnits(ds.NewID()))
 	ar := game.NewArena(p1, p2)
 	ar.ActivePlayer = 0
 
@@ -72,12 +72,21 @@ func useAbilityAt(t *testing.T, ar *game.Arena, playerID ds.ID, abID ability.ID,
 	return states
 }
 
-func assertStateContains(t *testing.T, states []game.ApplyState, pred func(game.ApplyState) bool) {
+type stateCases map[string]func(game.ApplyState) bool
+
+// assertStateContains ensures that every predicate matches at least one ApplyState in the slice.
+// If a predicate is not satisfied, the test fails with the name of the failed predicate.
+func assertStateContains(t *testing.T, states []game.ApplyState, preds stateCases) {
 	t.Helper()
-	for _, s := range states {
-		if pred(s) {
-			return
+
+iterate:
+	for name, assertFn := range preds {
+		for _, s := range states {
+			if assertFn(s) {
+				continue iterate
+			}
 		}
+
+		t.Fatalf("assert state: predicate %q failed", name)
 	}
-	t.Fatal("expected state not found")
 }
