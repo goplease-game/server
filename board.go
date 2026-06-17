@@ -10,24 +10,31 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
+// Board layout and hexagonal dimension settings.
 const (
-	SafeZoneSize = 2 // columns at each end that are "safe zones"
-	BoardSize    = 4
+	// SafeZoneSize defines the number of hex columns at each edge reserved for safe zones.
+	SafeZoneSize = 2
+	// BoardSize determines the maximum radial size of the hexagonal coordinate system grid.
+	BoardSize = 4
 )
 
+// HexCoord represents a location on a hexagonal grid using axial coordinates (Q and R).
 type HexCoord struct {
 	Q int `json:"q"`
 	R int `json:"r"`
 }
 
+// Key formats and returns the coordinate as a unique string identifier "Q:R".
 func (h HexCoord) Key() string {
 	return strconv.Itoa(h.Q) + ":" + strconv.Itoa(h.R)
 }
 
+// String implements the fmt.Stringer interface by returning the unique "Q:R" format.
 func (h HexCoord) String() string {
 	return h.Key()
 }
 
+// Distance calculates the manhattan distance between this hex coordinate and another.
 func (h HexCoord) Distance(to HexCoord) int {
 	abs := func(x int) int {
 		if x < 0 {
@@ -47,8 +54,7 @@ func (h HexCoord) Opposite(center HexCoord) HexCoord {
 	}
 }
 
-// Neighbors returns the 6 adjacent hex coordinates around from.
-// Does not filter by board boundaries or occupancy.
+// Neighbors returns the 6 adjacent hex coordinates without checking board limits or occupancy.
 func (h HexCoord) Neighbors() []HexCoord {
 	dirs := []HexCoord{
 		{Q: 1, R: 0}, {Q: -1, R: 0},
@@ -64,6 +70,7 @@ func (h HexCoord) Neighbors() []HexCoord {
 	return coords
 }
 
+// BoardCell represents a single grid tile on the map, containing its location, unit presence, and zone status.
 type BoardCell struct {
 	Coord          HexCoord `json:"coord"`
 	Unit           *Unit    `json:"unit,omitempty"`
@@ -71,22 +78,32 @@ type BoardCell struct {
 	SafeZonePlayer int      `json:"-"` // 0 or 1
 }
 
+// Board encapsulates the collection of cells forming the match battlefield map.
 type Board struct {
 	Cells BoardCells `json:"cells"`
 }
 
+// NewBoard instantiates, shapes, and returns a fully configured map grid using default BoardSize limits.
+func NewBoard() *Board {
+	b := newHexBoard(BoardSize)
+	return &b
+}
+
+// CellExists validates if a target hex coordinate is present within the current board bounds.
 func (b *Board) CellExists(at HexCoord) bool {
 	_, ok := b.Cells[at]
 	return ok
 }
 
+// BoardCells maps individual HexCoord structures to their active BoardCell pointer references.
 type BoardCells map[HexCoord]*BoardCell
 
-func (b BoardCells) MarshalJSON() ([]byte, error) {
+// MarshalJSON serializes the map into a JSON object using stringified "Q:R" keys.
+func (b *BoardCells) MarshalJSON() ([]byte, error) {
 	type Alias BoardCell
 
-	out := make(map[string]*BoardCell, len(b))
-	for coord, cell := range b {
+	out := make(map[string]*BoardCell, len(*b))
+	for coord, cell := range *b {
 		if cell == nil {
 			continue
 		}
@@ -99,9 +116,11 @@ func (b BoardCells) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
+// UnmarshalJSON deserializes a JSON object using stringified keys back into a BoardCells map structure.
 func (b *BoardCells) UnmarshalJSON(data []byte) error {
 	tmp := make(map[string]*BoardCell)
-	if err := json.Unmarshal(data, &tmp); err != nil {
+	err := json.Unmarshal(data, &tmp)
+	if err != nil {
 		return err
 	}
 
@@ -121,9 +140,10 @@ func (b *BoardCells) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (b BoardCells) InRange(from HexCoord, rangeN int) []*BoardCell {
+// InRange queries and returns all board cells located within a specified radius from a source coordinate.
+func (b *BoardCells) InRange(from HexCoord, rangeN int) []*BoardCell {
 	var result []*BoardCell
-	for to, cell := range b {
+	for to, cell := range *b {
 		if from.Distance(to) <= rangeN {
 			result = append(result, cell)
 		}
@@ -132,9 +152,10 @@ func (b BoardCells) InRange(from HexCoord, rangeN int) []*BoardCell {
 	return result
 }
 
-func (b BoardCells) InRangeHavingUnit(from HexCoord, rangeN int) []*BoardCell {
+// InRangeHavingUnit queries and returns cells within a specified radius that currently contain a unit.
+func (b *BoardCells) InRangeHavingUnit(from HexCoord, rangeN int) []*BoardCell {
 	var result []*BoardCell
-	for to, cell := range b {
+	for to, cell := range *b {
 		if cell.Unit == nil {
 			continue
 		}
@@ -146,8 +167,9 @@ func (b BoardCells) InRangeHavingUnit(from HexCoord, rangeN int) []*BoardCell {
 	return result
 }
 
-func (b BoardCells) IsUnitInRange(from HexCoord, rangeN int, unitID ds.ID) bool {
-	for to, cell := range b {
+// IsUnitInRange checks whether a specific unit instance is located within a given hex range.
+func (b *BoardCells) IsUnitInRange(from HexCoord, rangeN int, unitID ds.ID) bool {
+	for to, cell := range *b {
 		if cell.Unit == nil {
 			continue
 		}
@@ -161,9 +183,10 @@ func (b BoardCells) IsUnitInRange(from HexCoord, rangeN int, unitID ds.ID) bool 
 	return false
 }
 
-func (b BoardCells) InRangeHavingUnitAbility(from HexCoord, rangeN int, abID ability.ID) []*BoardCell {
+// InRangeHavingUnitAbility filters and returns nearby cells holding a unit with the specified ability unlocked.
+func (b *BoardCells) InRangeHavingUnitAbility(from HexCoord, rangeN int, abID ability.ID) []*BoardCell {
 	var result []*BoardCell
-	for to, cell := range b {
+	for to, cell := range *b {
 		if cell.Unit == nil {
 			continue
 		}
@@ -178,10 +201,10 @@ func (b BoardCells) InRangeHavingUnitAbility(from HexCoord, rangeN int, abID abi
 	return result
 }
 
-// Line returns cells along a ray from [from] strictly in the direction of targetPos,
-// up to radius steps. If targetPos does not lie on any of the 6 hex axes from [from],
-// it returns an empty slice.
-func (b BoardCells) Line(from, to HexCoord, size int) []*BoardCell {
+// Line returns cells along a ray from the source hex directly in the direction of targetPos, up to radius steps.
+// If the target position does not lie strictly on any of the 6 hex axes, it returns an empty slice.
+func (b *BoardCells) Line(from, to HexCoord, size int) []*BoardCell {
+	cells := *b
 	if from == to {
 		return []*BoardCell{}
 	}
@@ -190,7 +213,6 @@ func (b BoardCells) Line(from, to HexCoord, size int) []*BoardCell {
 	dr := to.R - from.R
 
 	// A valid hex axis requires dr==0, dq==0, or dq==-dr.
-	// In all valid cases the unit direction is just sign(dq), sign(dr).
 	if dr != 0 && dq != 0 && dq != -dr {
 		return []*BoardCell{}
 	}
@@ -211,7 +233,7 @@ func (b BoardCells) Line(from, to HexCoord, size int) []*BoardCell {
 	cur := from
 	for range size {
 		cur = HexCoord{Q: cur.Q + dir.Q, R: cur.R + dir.R}
-		cell, ok := b[cur]
+		cell, ok := cells[cur]
 		if !ok {
 			break
 		}
@@ -221,11 +243,7 @@ func (b BoardCells) Line(from, to HexCoord, size int) []*BoardCell {
 	return result
 }
 
-func NewBoard() *Board {
-	b := newHexBoard(BoardSize)
-	return &b
-}
-
+// newHexBoard builds the hexagonal cell matrix layout and establishes player safe zone restrictions.
 func newHexBoard(size int) Board {
 	b := Board{
 		Cells: make(map[HexCoord]*BoardCell),
@@ -254,8 +272,7 @@ func newHexBoard(size int) Board {
 	return b
 }
 
-// lineAreaCells returns all board cells in all 6 directions from `from` up to `length` steps.
-// Used for AreaLine abilities like PiercingShot.
+// lineAreaCells aggregates all existing map cells pointing down all 6 axial directions out to a maximum radius.
 func lineAreaCells(cells BoardCells, from HexCoord, radius int) []*BoardCell {
 	dirs := []HexCoord{
 		{Q: 1, R: 0}, {Q: -1, R: 0},
@@ -266,7 +283,7 @@ func lineAreaCells(cells BoardCells, from HexCoord, radius int) []*BoardCell {
 	var result []*BoardCell
 	for _, dir := range dirs {
 		cur := from
-		for i := 0; i < radius; i++ {
+		for range radius {
 			cur = HexCoord{Q: cur.Q + dir.Q, R: cur.R + dir.R}
 			cell, ok := cells[cur]
 			if !ok {
@@ -278,6 +295,7 @@ func lineAreaCells(cells BoardCells, from HexCoord, radius int) []*BoardCell {
 	return result
 }
 
+// ReachableCells computes all walkable tile coordinates a unit can access using standard pathfinding routines.
 func ReachableCells(from HexCoord, movePoints int, board Board) []HexCoord {
 	type node struct {
 		pos  HexCoord

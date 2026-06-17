@@ -347,7 +347,6 @@ func (b *Bot) alliesInRange(u *game.Unit, radius int) []*game.Unit {
 // simulateMoveAndUseAbility moves the unit to moveTo (if different from current position)
 // and then applies the given ability at targetPos.
 func (b *Bot) simulateMoveAndUseAbility(u *game.Unit, moveTo game.HexCoord, abilityID ability.ID, targetPos game.HexCoord) *simAction {
-
 	sim := &simAction{}
 
 	if moveTo != u.PosVal() {
@@ -365,7 +364,7 @@ func (b *Bot) simulateMoveAndUseAbility(u *game.Unit, moveTo game.HexCoord, abil
 
 // simulateUseAbility applies an ability to the given target position
 // and returns the resulting actions.
-func (b *Bot) simulateUseAbility(u *game.Unit, abilityID ability.ID, targetPos game.HexCoord) *simAction {
+func (b *Bot) simulateUseAbility(_ *game.Unit, abilityID ability.ID, targetPos game.HexCoord) *simAction {
 	return &simAction{
 		useAbility: &useAbilityAction{
 			abilityID: abilityID,

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
@@ -9,6 +10,16 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
+var (
+	// ErrUnitProvoked indicates that the unit is provoked and must target the provoking unit.
+	ErrUnitProvoked = errors.New("unit is provoked and must target")
+)
+
+// statusHandler defines the optional hooks a status can implement to react
+// to game events: being applied or removed, dealing or receiving damage,
+// the start or end of a turn, or another status being applied. It can also
+// mutate its own value at application time and restrict valid ability
+// targets while active.
 type statusHandler struct {
 	onApply              func(a *Arena, from, to *Unit, v status.Value) ApplyStates
 	onRemove             func(a *Arena, u *Unit, v status.Value) ApplyStates
@@ -27,6 +38,8 @@ type statusHandler struct {
 	validateAbilityTarget func(a *Arena, caster *Unit, ab ability.Ability, target *HexCoord, sv status.Value) error
 }
 
+// statusHandlers maps each status type to its behavior hooks. A nil entry
+// (or a missing onX hook) means the status has no special behavior for that event.
 var statusHandlers = map[status.Type]*statusHandler{
 	status.Impatience:     impatienceSH,
 	status.Provoked:       provokedSH,
@@ -41,6 +54,8 @@ var statusHandlers = map[status.Type]*statusHandler{
 	status.Frenzied:       frenziedSH,
 }
 
+// provokedSH records which unit provoked this one and forces direct-damage
+// abilities to target the provoker while it's alive.
 var provokedSH = &statusHandler{
 	mutate: func(_ *Arena, v *status.Value, from, _ *Unit) {
 		if v.Meta == nil {
@@ -48,7 +63,7 @@ var provokedSH = &statusHandler{
 		}
 		v.Meta["provoker"] = from.ID
 	},
-	validateAbilityTarget: func(a *Arena, caster *Unit, ab ability.Ability, target *HexCoord, sv status.Value) error {
+	validateAbilityTarget: func(a *Arena, _ *Unit, ab ability.Ability, target *HexCoord, sv status.Value) error {
 		if !ab.IsDirectDamage() {
 			return nil
 		}
@@ -64,15 +79,18 @@ var provokedSH = &statusHandler{
 		}
 
 		if target == nil || *target != provoker.PosVal() {
-			return fmt.Errorf("unit is provoked and must target %s", provoker.Name)
+			return fmt.Errorf("%w %s", ErrUnitProvoked, provoker.Name)
 		}
 
 		return nil
 	},
 }
 
+// simpleAttackModifierSH is a generic handler that adds its value to the
+// unit's attack on apply and removes it on removal. Shared by statuses
+// that are a flat, reversible attack bonus.
 var simpleAttackModifierSH = &statusHandler{
-	onApply: func(_ *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
+	onApply: func(_ *Arena, _, to *Unit, sv status.Value) (state ApplyStates) {
 		to.CurrentAtk += sv.Value
 		state.ToAll(
 			ApplyState{ChangeAtk: new(sv.Value), ToUnitID: to.ID},
@@ -92,15 +110,19 @@ var simpleAttackModifierSH = &statusHandler{
 	},
 }
 
+// sharpenedSH reuses simpleAttackModifierSH: a flat, reversible attack bonus.
 var sharpenedSH = simpleAttackModifierSH
+
+// frenziedSH reuses simpleAttackModifierSH: a flat, reversible attack bonus.
 var frenziedSH = simpleAttackModifierSH
 
+// markedSH increases incoming damage by its value, and grants the killing
+// blow's attacker a permanent attack bonus equal to that value.
 var markedSH = &statusHandler{
-	onDamageCalculated: func(a *Arena, dmg *int, sv status.Value) {
+	onDamageCalculated: func(_ *Arena, dmg *int, sv status.Value) {
 		*dmg += sv.Value
-		return
 	},
-	onDamageReceived: func(a *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
+	onDamageReceived: func(_ *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
 		if !to.Alive() {
 			from.CurrentAtk += sv.Value
 			state.ToAll(
@@ -114,6 +136,9 @@ var markedSH = &statusHandler{
 	},
 }
 
+// ralliedSH grants a reversible attack bonus on apply, and removes itself
+// (without re-triggering onRemove) once the unit deals damage, leaving the
+// bonus in place permanently.
 var ralliedSH = &statusHandler{
 	onApply: func(_ *Arena, _, to *Unit, sv status.Value) (state ApplyStates) {
 		to.CurrentAtk += sv.Value
@@ -133,7 +158,7 @@ var ralliedSH = &statusHandler{
 
 		return
 	},
-	onDamageDealt: func(a *Arena, from, to *Unit, sv status.Value) (state ApplyStates) {
+	onDamageDealt: func(_ *Arena, from, _ *Unit, sv status.Value) (state ApplyStates) {
 		// just silently remove status without triggering it's onRemove
 		// so original bonus will stay
 		from.RemoveStatus(status.Rallied)
@@ -145,8 +170,9 @@ var ralliedSH = &statusHandler{
 	},
 }
 
+// stunnedSH makes the unit skip its next turn.
 var stunnedSH = &statusHandler{
-	onTurnStart: func(_ *Arena, u *Unit, v status.Value) (state ApplyStates) {
+	onTurnStart: func(_ *Arena, u *Unit, _ status.Value) (state ApplyStates) {
 		state.ToSelf(ApplyState{
 			SkipTurn: true,
 			ToUnitID: u.ID,
@@ -161,6 +187,8 @@ var stunnedSH = &statusHandler{
 	},
 }
 
+// impatienceSH permanently increases the unit's attack at the start of
+// each turn it's active.
 var impatienceSH = &statusHandler{
 	onTurnStart: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
 		u.CurrentAtk += sv.Value
@@ -175,6 +203,8 @@ var impatienceSH = &statusHandler{
 	},
 }
 
+// hamstrungSH zeroes the unit's move points while active and restores
+// them to base on removal.
 var hamstrungSH = &statusHandler{
 	onTurnStart: func(_ *Arena, u *Unit, st status.Value) (state ApplyStates) {
 		u.CurrentMP = 0
@@ -184,7 +214,7 @@ var hamstrungSH = &statusHandler{
 		})
 		return
 	},
-	onRemove: func(_ *Arena, u *Unit, v status.Value) (state ApplyStates) {
+	onRemove: func(_ *Arena, u *Unit, _ status.Value) (state ApplyStates) {
 		u.CurrentMP = u.BaseMP
 		state.ToAll(ApplyState{
 			SetMP:    new(u.CurrentMP),
@@ -194,6 +224,9 @@ var hamstrungSH = &statusHandler{
 	},
 }
 
+// temporalAnchorSH grants bonus AP at the start of the turn, snapshots HP,
+// shield, and position, then restores all three (plus the AP) at the end
+// of the turn.
 var temporalAnchorSH = &statusHandler{
 	onTurnStart: func(_ *Arena, u *Unit, sv status.Value) (state ApplyStates) {
 		u.CurrentAP += sv.Value
@@ -222,11 +255,11 @@ var temporalAnchorSH = &statusHandler{
 			)
 		}
 
-		prevHP := sv.Meta["hp"].(int)
-		prevShield := sv.Meta["shield"].(int)
+		prevHP := sv.Meta["hp"].(int) //nolint:forcetypeassert
+		prevShield := sv.Meta["shield"].(int) //nolint:forcetypeassert
 		hpDiff := prevHP - u.CurrentHP
 		shDiff := prevShield - u.CurrentShield
-		prevPos := sv.Meta["pos"].(HexCoord)
+		prevPos := sv.Meta["pos"].(HexCoord) //nolint:forcetypeassert
 
 		if hpDiff != 0 {
 			u.CurrentHP = prevHP
@@ -253,8 +286,10 @@ var temporalAnchorSH = &statusHandler{
 	},
 }
 
+// debuffWardSH cancels any negative status applied to the unit while it's
+// active, by zeroing the incoming status's duration before it's stored.
 var debuffWardSH = &statusHandler{
-	onOtherStatusApplied: func(_ *Arena, from, to *Unit, applied *status.Value, v status.Value) (state ApplyStates) {
+	onOtherStatusApplied: func(_ *Arena, _, to *Unit, applied *status.Value, _ status.Value) (state ApplyStates) {
 		if !applied.IsNegative() {
 			return
 		}
@@ -265,6 +300,10 @@ var debuffWardSH = &statusHandler{
 	},
 }
 
+// ApplyStatusToUnit applies status st to unit to (caused by from), giving
+// to's existing statuses (e.g. Debuff Ward) a chance to intercept it via
+// onOtherStatusApplied, refreshing the duration if the status is already
+// active, and triggering onApply only on the status's first application.
 func ApplyStatusToUnit(a *Arena, st status.Type, from, to *Unit) (state ApplyStates) {
 	inst := status.ByType(st)
 	if inst == nil {
@@ -315,6 +354,8 @@ func ApplyStatusToUnit(a *Arena, st status.Type, from, to *Unit) (state ApplySta
 	return state
 }
 
+// removeStatusFromUnit removes status st from unit u and runs its
+// onRemove hook, if any.
 func removeStatusFromUnit(a *Arena, st status.Type, u *Unit) (state ApplyStates) {
 	sv, ok := u.Statuses[st]
 	if !ok {
@@ -337,6 +378,8 @@ func removeStatusFromUnit(a *Arena, st status.Type, u *Unit) (state ApplyStates)
 	return
 }
 
+// handleOnTurnStartStatuses runs the onTurnStart hook for each of unit's
+// active statuses.
 func handleOnTurnStartStatuses(a *Arena, unit *Unit) (state ApplyStates) {
 	for t, v := range unit.Statuses {
 		h, ok := statusHandlers[t]
@@ -354,6 +397,8 @@ func handleOnTurnStartStatuses(a *Arena, unit *Unit) (state ApplyStates) {
 	return
 }
 
+// handleOnDamageDealtStatuses runs the onDamageDealt hook for each of
+// from's active statuses after from deals damage to to.
 func handleOnDamageDealtStatuses(a *Arena, from, to *Unit) (state ApplyStates) {
 	for t, v := range from.Statuses {
 		h, ok := statusHandlers[t]
@@ -371,6 +416,8 @@ func handleOnDamageDealtStatuses(a *Arena, from, to *Unit) (state ApplyStates) {
 	return
 }
 
+// handleOnDamageReceivedStatuses runs the onDamageReceived hook for each
+// of to's active statuses after to takes damage from from.
 func handleOnDamageReceivedStatuses(a *Arena, from, to *Unit) (state ApplyStates) {
 	for t, v := range to.Statuses {
 		h, ok := statusHandlers[t]
@@ -388,6 +435,8 @@ func handleOnDamageReceivedStatuses(a *Arena, from, to *Unit) (state ApplyStates
 	return
 }
 
+// triggerStatusOnDamageCalculated runs the onDamageCalculated hook for
+// each of u's active statuses, letting them adjust dmg before it's applied.
 func triggerStatusOnDamageCalculated(a *Arena, u *Unit, dmg *int) {
 	for t, v := range u.Statuses {
 		h, ok := statusHandlers[t]
@@ -401,6 +450,4 @@ func triggerStatusOnDamageCalculated(a *Arena, u *Unit, dmg *int) {
 
 		h.onDamageCalculated(a, dmg, v)
 	}
-
-	return
 }

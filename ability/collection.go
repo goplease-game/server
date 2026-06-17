@@ -2,43 +2,38 @@ package ability
 
 import "github.com/goplease-game/server/ability/status"
 
+// Game ability identifiers used to distinguish unique combat skills and spells.
 const (
 	Unknown          ID = ""
 	BasicMeleeAttack ID = "basic_melee_attack"
 	BasicRangeAttack ID = "basic_range_attack"
 	BasicMagicAttack ID = "basic_magic_attack"
 
-	// Tank
 	Fortify     ID = "fortify"
 	Provoke     ID = "provoke"
 	ShieldBash  ID = "shield_bash"
 	UndyingWill ID = "undying_will"
 
-	// warrior
 	BattleCry   ID = "battle_cry"
 	IdolihuSpin ID = "idolihu_spin"
 	PowerPush   ID = "power_push"
 	Frenzy      ID = "frenzy"
 
-	// ranger
 	PiercingShot  ID = "piercing_shot"
 	HuntersMark   ID = "hunters_mark"
 	HamstringShot ID = "hamstring_shot"
 	CoverFire     ID = "cover_fire"
 
-	// rogue
 	ShadowStep  ID = "shadow_step"
 	GangUp      ID = "gang_up"
 	Eliminate   ID = "eliminate"
 	Opportunity ID = "opportunity"
 
-	// mage
 	Translocation ID = "translocation"
 	TimeWarp      ID = "time_warp"
 	Purge         ID = "purge"
 	FocusField    ID = "focus_field"
 
-	// support
 	Heal           ID = "heal"
 	Equalize       ID = "equalize"
 	Purify         ID = "purify"
@@ -64,9 +59,11 @@ const (
 // 16. Alter unit queue
 // 17. buff steal, debuff transfer|reflect
 
+// HintCurrentATK defines the placeholder string used in damage hints
+// to represent the unit's current attack power.
 const HintCurrentATK = "ATK"
 
-// Use ByID(id) to get the ability
+// abilities maps each unique ability ID to its corresponding structural configuration and combat rules.
 var abilities = map[ID]Ability{
 	BasicMeleeAttack: {
 		Type:        Skill,
@@ -102,7 +99,6 @@ var abilities = map[ID]Ability{
 		DamageHint:  HintCurrentATK,
 	},
 
-	// --- TANK ---
 	Fortify: {
 		Type:        Skill,
 		IsPassive:   false,
@@ -147,7 +143,6 @@ var abilities = map[ID]Ability{
 		Effect:      Effect{HealHP: 1, AddShield: 10},
 	},
 
-	// --- WARRIOR ---
 	BattleCry: {
 		Type:        Skill,
 		IsPassive:   false,
@@ -193,7 +188,6 @@ var abilities = map[ID]Ability{
 		Effect:      Effect{ApplyStatus: status.Frenzied},
 	},
 
-	// --- RANGER ---
 	PiercingShot: {
 		Type:      Skill,
 		IsPassive: false,
@@ -242,7 +236,6 @@ var abilities = map[ID]Ability{
 		Effect:      Effect{DealDamage: 3},
 	},
 
-	// --- ROGUE ---
 	ShadowStep: {
 		Type:        Spell,
 		IsPassive:   false,
@@ -288,7 +281,6 @@ var abilities = map[ID]Ability{
 		DamageHint:  HintCurrentATK,
 	},
 
-	// --- MAGE ---
 	Translocation: {
 		Type:        Spell,
 		IsPassive:   false,

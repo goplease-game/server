@@ -1,3 +1,4 @@
+// Package unit ...
 package unit
 
 import (
@@ -37,7 +38,7 @@ Support: 30/2/3/3 (-1 ATK Point (3->2), +1 Ranged Upgrade (1->3))
 */
 
 // TODO
-//func (t Template) Validate() error {
+// func (t Template) Validate() error {
 //	if t.HP < 3 || t.Attack < 1 || t.MovePoints < 1 || t.MovePoints > 3 {
 //		return errors.New("stats out of bounds")
 //	}
@@ -60,8 +61,9 @@ Support: 30/2/3/3 (-1 ATK Point (3->2), +1 Ranged Upgrade (1->3))
 //	}
 //
 //	return nil
-//}
+// }
 
+// DefaultTemplates is the default roster of unit templates available in the game.
 var DefaultTemplates = []Template{
 	{
 		ID:          1,

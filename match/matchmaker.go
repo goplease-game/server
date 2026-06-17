@@ -1,3 +1,4 @@
+// Package match ...
 package match
 
 import (
@@ -11,26 +12,31 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
+// matchmakingTimeout defines the duration a player can remain in the queue before a computer opponent is subbed in.
 const matchmakingTimeout = 2 * time.Second
 
-type MatchCallback func(arena *game.Arena, playerIndex int)
+// Callback represents the signaling function triggered once an arena allocation or player pairing resolves.
+type Callback func(arena *game.Arena, playerIndex int)
 
+// queueEntry stores metadata, targeting parameters, and timestamps for an active matchmaking participant.
 type queueEntry struct {
 	playerID ds.ID
-	cb       MatchCallback
+	cb       Callback
 	at       time.Time
 	isBot    bool
 }
 
+// Matchmaker coordinates player aggregation, pairing synchronization, and automated companion injection routines.
 type Matchmaker struct {
 	mu          sync.Mutex
 	queue       []queueEntry
 	arenas      map[ds.ID]*game.Arena
-	notify      MatchCallback
+	notify      Callback
 	playerCount int
 }
 
-func New(notify MatchCallback) *Matchmaker {
+// New instantiates and provisions a fresh Matchmaker entity, launching the background queue supervisor thread.
+func New(notify Callback) *Matchmaker {
 	mm := &Matchmaker{
 		notify: notify,
 		arenas: make(map[ds.ID]*game.Arena),
@@ -39,15 +45,12 @@ func New(notify MatchCallback) *Matchmaker {
 	return mm
 }
 
-func (mm *Matchmaker) nextPlayerName() string {
-	mm.playerCount++
-	return fmt.Sprintf("Player %d", mm.playerCount)
-}
-
-func (mm *Matchmaker) Enqueue(playerID ds.ID, isBot bool, cb MatchCallback) {
+// Enqueue checks identity keys to either merge matching profiles into live arenas or buffer them in the active search pool.
+func (mm *Matchmaker) Enqueue(playerID ds.ID, isBot bool, cb Callback) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 
+	// Guard against duplicate queue entries for the same player.
 	for _, e := range mm.queue {
 		if e.playerID == playerID {
 			return
@@ -77,13 +80,7 @@ func (mm *Matchmaker) Enqueue(playerID ds.ID, isBot bool, cb MatchCallback) {
 	})
 }
 
-func (mm *Matchmaker) nameFor(isBot bool) string {
-	if isBot {
-		return bot.PlayerName()
-	}
-	return mm.nextPlayerName()
-}
-
+// Cancel safely excises an active player tracking entry from the matchmaking buffer arrays.
 func (mm *Matchmaker) Cancel(playerID ds.ID) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -96,12 +93,14 @@ func (mm *Matchmaker) Cancel(playerID ds.ID) {
 	}
 }
 
+// Arena extracts and retrieves the reference pointer of an active match instance based on its domain signature key.
 func (mm *Matchmaker) Arena(arenaID ds.ID) *game.Arena {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 	return mm.arenas[arenaID]
 }
 
+// CloseArena removes an active game field instance from memory tracking maps once its structural phase terminates.
 func (mm *Matchmaker) CloseArena(id ds.ID) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -109,6 +108,7 @@ func (mm *Matchmaker) CloseArena(id ds.ID) {
 	log.Printf("[match] arena %s closed", id)
 }
 
+// ArenaByPlayerID crawls active maps to resolve which active instance currently holds a reference to the target user.
 func (mm *Matchmaker) ArenaByPlayerID(playerID ds.ID) *game.Arena {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -122,6 +122,7 @@ func (mm *Matchmaker) ArenaByPlayerID(playerID ds.ID) *game.Arena {
 	return nil
 }
 
+// watchQueue runs a recurring loop to monitor, update, and advance wait timers for queued items.
 func (mm *Matchmaker) watchQueue() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -130,11 +131,12 @@ func (mm *Matchmaker) watchQueue() {
 	}
 }
 
+// promoteStaleEntries filters waiting entries to spin up automated bot opponents for connections exceeding timeouts.
 func (mm *Matchmaker) promoteStaleEntries() {
 	mm.mu.Lock()
 
 	now := time.Now()
-	remaining := mm.queue[:0]
+	remaining := mm.queue[:0] // Re-use queue memory to perform an in-place filter.
 	var toSpawn []queueEntry
 
 	for _, e := range mm.queue {
@@ -159,6 +161,7 @@ func (mm *Matchmaker) promoteStaleEntries() {
 		}
 		log.Printf("[match] spawned bot %s for player %s", botID, e.playerID)
 
+		// Place the user back into the system so that the next Enqueue pass links them with the new bot instance.
 		mm.mu.Lock()
 		mm.queue = append(mm.queue, e)
 		mm.mu.Unlock()
@@ -167,13 +170,29 @@ func (mm *Matchmaker) promoteStaleEntries() {
 	}
 }
 
+// createArena configures a new combat instance, mapping its signature values into memory registries.
 func (mm *Matchmaker) createArena(p1, p2 *game.Player) *game.Arena {
 	arena := game.NewArena(p1, p2)
 	mm.arenas[arena.ID] = arena
 	return arena
 }
 
+// newPlayer instantiates a fully operational structural player representation, complete with initial starting card decks.
 func (mm *Matchmaker) newPlayer(playerID ds.ID, name string, index int) *game.Player {
 	deck := game.StartingUnits(playerID)
 	return game.NewPlayer(playerID, name, index, deck)
+}
+
+// nameFor routes structural triggers to fetch randomized bot identifiers or default player sequence strings.
+func (mm *Matchmaker) nameFor(isBot bool) string {
+	if isBot {
+		return bot.PlayerName()
+	}
+	return mm.nextPlayerName()
+}
+
+// nextPlayerName generates a sequential string name for unauthenticated guest or client connections.
+func (mm *Matchmaker) nextPlayerName() string {
+	mm.playerCount++
+	return fmt.Sprintf("Player %d", mm.playerCount)
 }

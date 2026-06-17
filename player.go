@@ -4,6 +4,9 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
+// Player represents a participant in a match, tracking their hand of
+// units, placement progress, and the Phantom AP carried over from
+// unequal unit counts.
 type Player struct {
 	ID          ds.ID   `json:"id"`
 	Name        string  `json:"name"`
@@ -16,6 +19,8 @@ type Player struct {
 	Ready bool `json:"-"`
 }
 
+// NewPlayer creates a new Player with the given id, name, seat index, and
+// starting hand of units.
 func NewPlayer(id ds.ID, name string, index int, units []*Unit) *Player {
 	p := &Player{
 		ID:          id,
@@ -27,6 +32,8 @@ func NewPlayer(id ds.ID, name string, index int, units []*Unit) *Player {
 	return p
 }
 
+// HasUnits reports whether the player still has units, either in hand or
+// placed on the board.
 func (p *Player) HasUnits(board *Board) bool {
 	if len(p.Units) > 0 {
 		return true
@@ -41,6 +48,8 @@ func (p *Player) HasUnits(board *Board) bool {
 	return false
 }
 
+// PopUnitFromHand removes and returns the first unit in the player's hand
+// matching templateID, or nil if none is found.
 func (p *Player) PopUnitFromHand(templateID int) *Unit {
 	for i, u := range p.Units {
 		if u.TemplateID == templateID {
@@ -52,6 +61,7 @@ func (p *Player) PopUnitFromHand(templateID int) *Unit {
 	return nil
 }
 
+// HasUnitsInHand reports whether the player has any units left in hand.
 func (p *Player) HasUnitsInHand() bool {
 	return len(p.Units) > 0
 }

@@ -13,35 +13,49 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// ─── Upgrader ─────────────────────────────────────────────────────────────────
-
+// upgrader configures HTTP → WebSocket upgrades.
+// It sets buffer sizes, handshake timeout, and origin policy.
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:   1024,
 	WriteBufferSize:  1024,
 	HandshakeTimeout: 10 * time.Second,
 	// In production replace with an origin whitelist check.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(*http.Request) bool { return true },
 }
 
-// ─── Client ───────────────────────────────────────────────────────────────────
-
 const (
-	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
-	pingPeriod     = (pongWait * 9) / 10
+	// writeWait defines maximum time allowed to write a message to the client.
+	writeWait = 10 * time.Second
+
+	// pongWait defines time to wait for a pong response before considering the connection dead.
+	pongWait = 60 * time.Second
+
+	// pingPeriod defines how often the server sends ping messages to keep the connection alive.
+	pingPeriod = (pongWait * 9) / 10
+
+	// maxMessageSize limits maximum size of incoming WebSocket messages in bytes.
 	maxMessageSize = 4096
 )
 
-// Client represents one connected browser/game client.
+// Client represents a single connected WebSocket client (browser or game instance).
+// It maintains connection state, player identity, and outbound message queue.
 type Client struct {
-	ID       string
+	// ID is a unique runtime identifier for this WebSocket connection instance.
+	ID string
+
 	PlayerID ds.ID
-	ArenaID  ds.ID
-	Name     string
+
+	// ArenaID represents the game session/room this client is currently connected to.
+	ArenaID ds.ID
+
+	Name string
 
 	hub  *Hub
 	conn *websocket.Conn
-	send chan []byte // buffered outbound queue
+
+	// send is a buffered channel used as an outbound message queue to the client.
+	// Messages are consumed by writePump in a separate goroutine.
+	send chan []byte
 }
 
 func newClient(hub *Hub, conn *websocket.Conn, playerID ds.ID) *Client {
@@ -54,17 +68,20 @@ func newClient(hub *Hub, conn *websocket.Conn, playerID ds.ID) *Client {
 	}
 }
 
+// SetName assigns a human-readable name to the client (used for logging/debugging/UI).
 func (c *Client) SetName(name string) {
 	c.Name = name
 }
 
-// Send enqueues a message for this client (non-blocking).
+// Send enqueues an outbound message to the client.
+// It is non-blocking; if the buffer is full, the message is dropped.
 func (c *Client) Send(msg api.OutMessage) {
 	b, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("[ws] marshal error for client %s: %v", c.ID, err)
 		return
 	}
+
 	select {
 	case c.send <- b:
 	default:
@@ -73,12 +90,15 @@ func (c *Client) Send(msg api.OutMessage) {
 	}
 }
 
-// readPump reads messages from the WebSocket and dispatches them to the hub.
-// Runs in its own goroutine; closes the connection when done.
+// readPump continuously reads messages from the WebSocket connection.
+// It validates input, unmarshals JSON, and forwards messages to the hub dispatcher.
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		err := c.conn.Close()
+		if err != nil {
+			log.Printf("[ws] close client %s: %v", c.ID, err)
+		}
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
@@ -98,9 +118,13 @@ func (c *Client) readPump() {
 		}
 
 		var msg api.InMessage
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		err = json.Unmarshal(raw, &msg)
+		if err != nil {
 			log.Printf("[ws] invalid JSON from client %s: %v", c.ID, err)
-			c.Send(api.OutMessage{Action: api.ErrorAction, Data: map[string]string{"message": "invalid JSON"}})
+			c.Send(api.OutMessage{
+				Action: api.ErrorAction,
+				Data:   map[string]string{"message": "invalid JSON"},
+			})
 			continue
 		}
 
@@ -108,13 +132,16 @@ func (c *Client) readPump() {
 	}
 }
 
-// writePump drains the send channel and writes to the WebSocket.
-// Runs in its own goroutine.
+// writePump continuously writes outbound messages from the send queue to the WebSocket.
+// It also periodically sends ping messages to keep the connection alive.
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		err := c.conn.Close()
+		if err != nil {
+			log.Printf("[ws] close client %s: %v", c.ID, err)
+		}
 	}()
 
 	for {
@@ -122,65 +149,69 @@ func (c *Client) writePump() {
 		case msg, ok := <-c.send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// Hub closed the channel.
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			err := c.conn.WriteMessage(websocket.TextMessage, msg)
+			if err != nil {
 				log.Printf("[ws] write error for client %s: %v", c.ID, err)
 				return
 			}
 
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			err := c.conn.WriteMessage(websocket.PingMessage, nil)
+			if err != nil {
 				return
 			}
 		}
 	}
 }
 
-// ─── Events (Hub → GameServer) ───────────────────────────────────────────────
-
+// EventKind defines the type of lifecycle event occurring in the hub.
 type EventKind int
 
 const (
+	// EventConnected indicates a new client connection.
 	EventConnected EventKind = iota
+
+	// EventDisconnected indicates a client disconnection.
 	EventDisconnected
+
+	// EventMessage indicates an incoming message from a client.
 	EventMessage
 )
 
+// Event represents a high-level websocket event forwarded to the game server.
 type Event struct {
 	Kind   EventKind
 	Client *Client
 	Msg    api.InMessage
 }
 
-// ─── Hub ──────────────────────────────────────────────────────────────────────
-
-// Envelope bundles an incoming message with its sender.
+// Envelope wraps an incoming client message with its sender metadata.
 type Envelope struct {
 	Client  *Client
 	Message api.InMessage
 }
 
-// RoomBroadcast sends a message to every client in a specific room.
+// RoomBroadcast represents a message sent to all clients within a specific room/arena.
 type RoomBroadcast struct {
 	RoomID  ds.ID
 	Message api.OutMessage
 }
 
-// Hub is the central registry of all active WebSocket clients.
-// It has no knowledge of game logic — it only manages connections and routing.
+// Hub is the central websocket connection manager.
 //
-// Two independent loops run concurrently:
-//   - registryLoop  — owns the clients map; handles connect/disconnect/dispatch
-//   - broadcastLoop — drains the broadcast channel; reads clients map under RLock
+// It is responsible for:
+//   - tracking connected clients
+//   - routing incoming messages to game logic
+//   - broadcasting messages to arenas/rooms
 //
-// This split ensures that a slow GameServer consumer never blocks room broadcasts.
+// It does NOT contain game logic.
 type Hub struct {
 	mu             sync.RWMutex
-	clients        map[string]*Client // keyed by Client.ID
+	clients        map[string]*Client
 	clientByPlayer map[ds.ID]*Client
 
 	register   chan *Client
@@ -192,6 +223,9 @@ type Hub struct {
 	Events chan Event
 }
 
+// NewHub creates and initializes a new Hub instance.
+// It sets up internal channels and empty client registries.
+// The hub is not started automatically; Run must be called separately.
 func NewHub() *Hub {
 	return &Hub{
 		clients:        make(map[string]*Client),
@@ -204,14 +238,70 @@ func NewHub() *Hub {
 	}
 }
 
-// Run launches both internal loops. Call once in a goroutine.
+// Run starts hub internal loops (registry and broadcast processing).
+// Must be executed once, typically in a goroutine.
 func (h *Hub) Run() {
 	go h.broadcastLoop()
-	h.registryLoop() // blocks
+	h.registryLoop()
 }
 
-// registryLoop serialises all mutations to the clients map and forwards
-// connect/disconnect/message events to the Events channel for GameServer.
+// Broadcast sends a message to all clients in the specified room.
+func (h *Hub) Broadcast(roomID ds.ID, msg api.OutMessage) {
+	h.broadcast <- RoomBroadcast{RoomID: roomID, Message: msg}
+}
+
+// ClientByPlayerID returns the active websocket client for a given player ID.
+// Returns nil if no client is connected.
+func (h *Hub) ClientByPlayerID(playerID ds.ID) *Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.clientByPlayer[playerID]
+}
+
+// ServeWS upgrades an HTTP request to a WebSocket connection,
+// creates a client instance, and registers it in the hub.
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+	playerID := ds.NewID()
+	idString := r.URL.Query().Get("player_id")
+	if idString != "" {
+		var err error
+		playerID, err = ds.ParseID(idString)
+		if err != nil {
+			log.Printf("invalid UUID: %v", err)
+			return
+		}
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("[ws] upgrade failed for player %q: %v", playerID, err) //nolint:gosec
+		return
+	}
+
+	c := newClient(h, conn, playerID)
+	h.register <- c
+
+	go c.writePump()
+	go c.readPump()
+}
+
+// broadcastLoop delivers room-wide messages to connected clients.
+// It runs independently to avoid blocking registry operations.
+func (h *Hub) broadcastLoop() {
+	for bc := range h.broadcast {
+		h.mu.RLock()
+		for _, c := range h.clients {
+			if c.ArenaID == bc.RoomID {
+				c.Send(bc.Message)
+			}
+		}
+		h.mu.RUnlock()
+	}
+}
+
+// registryLoop manages client lifecycle (register/unregister) and message dispatching.
+// It is the single writer to the clients map.
 func (h *Hub) registryLoop() {
 	for {
 		select {
@@ -238,60 +328,4 @@ func (h *Hub) registryLoop() {
 			h.Events <- Event{Kind: EventMessage, Client: env.Client, Msg: env.Message}
 		}
 	}
-}
-
-// broadcastLoop is the only writer to client.send for room-wide messages.
-// It runs independently so a full Events channel never stalls broadcasts.
-func (h *Hub) broadcastLoop() {
-	for bc := range h.broadcast {
-		h.mu.RLock()
-		for _, c := range h.clients {
-			if c.ArenaID == bc.RoomID {
-				c.Send(bc.Message)
-			}
-		}
-		h.mu.RUnlock()
-	}
-}
-
-// Broadcast enqueues a message for every client in a room.
-func (h *Hub) Broadcast(roomID ds.ID, msg api.OutMessage) {
-	h.broadcast <- RoomBroadcast{RoomID: roomID, Message: msg}
-}
-
-// ClientByPlayerID finds a connected client by its game-level player ID.
-func (h *Hub) ClientByPlayerID(playerID ds.ID) *Client {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	return h.clientByPlayer[playerID]
-}
-
-// ─── HTTP handler ─────────────────────────────────────────────────────────────
-
-// ServeWS upgrades an HTTP request to a WebSocket connection and registers the
-// resulting client with the hub.
-func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	playerID := ds.NewID()
-	idString := r.URL.Query().Get("player_id")
-	if idString != "" {
-		var err error
-		playerID, err = ds.ParseID(idString)
-		if err != nil {
-			log.Printf("invalid UUID: %v", err)
-			return
-		}
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("[ws] upgrade failed for player %s: %v", playerID, err)
-		return
-	}
-
-	c := newClient(h, conn, playerID)
-	h.register <- c
-
-	go c.writePump()
-	go c.readPump()
 }

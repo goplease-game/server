@@ -27,7 +27,8 @@ func (b *Bot) handleNewGame(data json.RawMessage) {
 
 func (b *Bot) handleOpponentUnitPlaced(data json.RawMessage) {
 	var load game.PlaceUnitPayload
-	if err := json.Unmarshal(data, &load); err != nil {
+	err := json.Unmarshal(data, &load)
+	if err != nil {
 		log.Printf("[bot] [unit_placed] unmarshal error: %s", err)
 		return
 	}
@@ -67,7 +68,8 @@ func (b *Bot) handlePlaceUnit() {
 
 func (b *Bot) handlePlayUnit(data json.RawMessage) {
 	var load game.PlayUnitPayload
-	if err := json.Unmarshal(data, &load); err != nil {
+	err := json.Unmarshal(data, &load)
+	if err != nil {
 		log.Printf("[bot] [play_unit] unmarshal error: %s", err)
 		return
 	}
@@ -106,7 +108,8 @@ func (b *Bot) handlePlayUnit(data json.RawMessage) {
 
 func (b *Bot) handleOpponentUnitMoved(data json.RawMessage) {
 	var load game.UnitMovedPayload
-	if err := json.Unmarshal(data, &load); err != nil {
+	err := json.Unmarshal(data, &load)
+	if err != nil {
 		log.Printf("[bot] [unit_moved] unmarshal error: %s", err)
 		return
 	}
@@ -122,7 +125,8 @@ func (b *Bot) handleOpponentUnitMoved(data json.RawMessage) {
 
 func (b *Bot) handleApplyState(data json.RawMessage) {
 	var load []game.ApplyState
-	if err := json.Unmarshal(data, &load); err != nil {
+	err := json.Unmarshal(data, &load)
+	if err != nil {
 		log.Printf("[bot] [apply_state] unmarshal error: %s", err)
 		return
 	}

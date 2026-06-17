@@ -1,3 +1,4 @@
+// Package main ...
 package main
 
 import (
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	// TODO proper config
+	// TODO proper config.
 	RWTimeout = 10 * time.Second
 	Host      = "127.0.0.1"
 	Port      = "8090"
@@ -51,7 +52,8 @@ func main() {
 
 	go func() {
 		log.Printf("[goplease] server running at %s", addr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		err := server.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
 	}()
@@ -66,7 +68,8 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		if err := server.Shutdown(ctx); err != nil {
+		err := server.Shutdown(ctx)
+		if err != nil {
 			_ = server.Close()
 		}
 

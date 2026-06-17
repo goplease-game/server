@@ -5,7 +5,6 @@ import (
 	"github.com/goplease-game/server/ability/status"
 )
 
-// because of initialization cycle
 func init() {
 	triggers = &TriggerRegistry{
 		onDeath: []onDeathHandler{
@@ -33,24 +32,25 @@ func init() {
 	}
 }
 
+// triggers is the global runtime instance of the event dispatch registry.
 var triggers *TriggerRegistry
 
-// onDeathHandler defines a function signature for triggers that execute when a unit dies.
+// onDeathHandler executes logic reacting to a unit's death on the arena.
 type onDeathHandler func(*Arena, *Unit) ApplyStates
 
-// onMoveHandler defines a function signature for triggers that execute when a unit moves.
+// onMoveHandler executes logic reacting to a unit's repositioning.
 type onMoveHandler func(*Arena, *Unit) ApplyStates
 
-// onDamageReceivedHandler defines a function signature for triggers that execute when a unit takes damage.
+// onDamageReceivedHandler executes logic reacting to a target unit taking damage from a source unit.
 type onDamageReceivedHandler func(a *Arena, source, target *Unit) ApplyStates
 
-// onDamageDealtHandler defines a function signature for triggers that execute when a unit deal damage.
+// onDamageDealtHandler executes logic reacting to a source unit inflicting damage upon a target unit.
 type onDamageDealtHandler func(a *Arena, source, target *Unit) ApplyStates
 
-// onTurnStartHandler defines a function signature for triggers that execute at the beginning of a unit's turn.
+// onTurnStartHandler executes logic reacting to the initiation of a unit's active turn.
 type onTurnStartHandler func(*Arena, *Unit) ApplyStates
 
-// TriggerRegistry manages and routes game event triggers to their respective handlers.
+// TriggerRegistry manages groups of sequential event handlers hooked into core game-loop actions.
 type TriggerRegistry struct {
 	onDeath          []onDeathHandler
 	onMove           []onMoveHandler
@@ -59,7 +59,7 @@ type TriggerRegistry struct {
 	onTurnStart      []onTurnStartHandler
 }
 
-// SomebodyJustExpectedlyDied executes all registered handlers for a unit's death event.
+// SomebodyJustExpectedlyDied dispatches the death event to all registered onDeath handlers.
 func (r *TriggerRegistry) SomebodyJustExpectedlyDied(a *Arena, unfortunateOne *Unit) (state ApplyStates) {
 	for _, takeCareOf := range r.onDeath {
 		state.With(takeCareOf(a, unfortunateOne))
@@ -68,7 +68,7 @@ func (r *TriggerRegistry) SomebodyJustExpectedlyDied(a *Arena, unfortunateOne *U
 	return
 }
 
-// UnitMoved executes all registered handlers for a unit's movement event.
+// UnitMoved dispatches the movement event to all registered onMove handlers.
 func (r *TriggerRegistry) UnitMoved(a *Arena, u *Unit) (state ApplyStates) {
 	for _, handler := range r.onMove {
 		state.With(handler(a, u))
@@ -77,7 +77,7 @@ func (r *TriggerRegistry) UnitMoved(a *Arena, u *Unit) (state ApplyStates) {
 	return
 }
 
-// DamageReceived executes all registered handlers for an event where a target unit takes damage from a source.
+// DamageReceived dispatches the defensive damage event to all registered onDamageReceived handlers.
 func (r *TriggerRegistry) DamageReceived(a *Arena, source, target *Unit) (st ApplyStates) {
 	for _, handler := range r.onDamageReceived {
 		st.With(handler(a, source, target))
@@ -86,7 +86,7 @@ func (r *TriggerRegistry) DamageReceived(a *Arena, source, target *Unit) (st App
 	return
 }
 
-// DamageDealt executes all registered handlers for an event where a target unit deals damage.
+// DamageDealt dispatches the offensive damage event to all registered onDamageDealt handlers.
 func (r *TriggerRegistry) DamageDealt(a *Arena, from, to *Unit) (st ApplyStates) {
 	for _, handler := range r.onDamageDealt {
 		st.With(handler(a, from, to))
@@ -95,7 +95,7 @@ func (r *TriggerRegistry) DamageDealt(a *Arena, from, to *Unit) (st ApplyStates)
 	return
 }
 
-// TurnStarted executes all registered handlers when a unit's turn begins and resets turn-specific variables.
+// TurnStarted resets round-specific variables and triggers all registered start-of-turn event handlers.
 func (r *TriggerRegistry) TurnStarted(a *Arena, u *Unit) (state ApplyStates) {
 	u.PhantomAPUsedThisTurn = 0
 
@@ -106,10 +106,12 @@ func (r *TriggerRegistry) TurnStarted(a *Arena, u *Unit) (state ApplyStates) {
 	return
 }
 
+// OnTurnStart acts as a public entrypoint to evaluate and route turn start events via the global trigger registry.
 func OnTurnStart(a *Arena, u *Unit) (sts ApplyStates) {
 	return triggers.TurnStarted(a, u)
 }
 
+// useUndyingWillAbility processes the passive cheat-death mechanic for tanks, restoring 1 HP and applying a shield.
 func useUndyingWillAbility(_ *Arena, u *Unit) (state ApplyStates) {
 	id := ability.UndyingWill
 	ab := ability.ByID(id)
@@ -138,6 +140,7 @@ func useUndyingWillAbility(_ *Arena, u *Unit) (state ApplyStates) {
 	return
 }
 
+// recalculateFrenzyAbility updates the Frenzy status condition on all units depending on the current proximity of enemies.
 func recalculateFrenzyAbility(a *Arena, _ *Unit) (state ApplyStates) {
 	id := ability.Frenzy
 	ab := ability.ByID(id)
@@ -167,6 +170,7 @@ func recalculateFrenzyAbility(a *Arena, _ *Unit) (state ApplyStates) {
 	return
 }
 
+// useCoverFireAbility checks and fires ranger counter-attacks at enemies who dared attack their adjacent allies.
 func useCoverFireAbility(a *Arena, source, target *Unit) (st ApplyStates) {
 	if source.IsAlly(target) {
 		return
@@ -198,6 +202,7 @@ func useCoverFireAbility(a *Arena, source, target *Unit) (st ApplyStates) {
 	return
 }
 
+// useOpportunityAbility triggers a free melee follow-up strike for rogues when an ally hits an adjacent enemy.
 func useOpportunityAbility(a *Arena, source, target *Unit) (state ApplyStates) {
 	if source.PosVal().Distance(target.PosVal()) > 1 { // only melee attacks
 		return
@@ -231,6 +236,7 @@ func useOpportunityAbility(a *Arena, source, target *Unit) (state ApplyStates) {
 	return
 }
 
+// useFocusFieldAbility decreases non-passive ability cooldowns for friendly targets positioned next to the Mist area.
 func useFocusFieldAbility(a *Arena, unit *Unit) (st ApplyStates) {
 	id := ability.FocusField
 	ab := ability.ByID(id)
@@ -269,7 +275,7 @@ func useFocusFieldAbility(a *Arena, unit *Unit) (st ApplyStates) {
 	return
 }
 
-// TODO apply status to display how much max HP increased
+// useBottomlessVialAbility expands maximum HP parameters and heals an ally unit when they receive a hit.
 func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 	id := ability.BottomlessVial
 	ab := ability.ByID(id)
@@ -301,6 +307,7 @@ func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 	return
 }
 
+// handleImpatience checks round thresholds to forcefully inflict an Impatience debuff if the game stalls too long.
 func handleImpatience(a *Arena, unit *Unit) (state ApplyStates) {
 	if a.CurrentRound < ApplyImpatienceStatusAfterRound {
 		return

@@ -1,3 +1,4 @@
+// Package ws ...
 package ws
 
 import (
@@ -13,7 +14,9 @@ import (
 	"github.com/goplease-game/server/match"
 )
 
-// GameServer wires the hub to the game layer.
+const nullValue = "null"
+
+// GameServer wires the websocket communication layer with the core game domain components.
 type GameServer struct {
 	hub        *Hub
 	matchmaker *match.Matchmaker
@@ -23,6 +26,7 @@ type GameServer struct {
 	turnTimers map[ds.ID]*time.Timer
 }
 
+// NewGameServer instantiates and returns a fully initialized GameServer configuration.
 func NewGameServer(hub *Hub) *GameServer {
 	gs := &GameServer{
 		hub:        hub,
@@ -33,20 +37,22 @@ func NewGameServer(hub *Hub) *GameServer {
 	return gs
 }
 
+// ConnectedResponse contains the operational payload transmitted to a client after successfully joining the server.
 type ConnectedResponse struct {
 	PlayerID ds.ID `json:"player_id"`
 }
 
+// DisconnectResponse details the identifier info broadcast when an active participant drops connection mid-game.
 type DisconnectResponse struct {
 	PlayerID ds.ID `json:"player_id"`
 }
 
+// ErrorResponse holds a standardized structure used for conveying server-side validation or error text to clients.
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-// Run reads from hub.Events and dispatches to game handlers.
-// Call once in a goroutine: go gs.Run()
+// Run boots up the central server message polling thread, executing corresponding domain events indefinitely.
 func (gs *GameServer) Run() {
 	for event := range gs.hub.Events {
 		switch event.Kind {
@@ -60,12 +66,14 @@ func (gs *GameServer) Run() {
 	}
 }
 
+// notifyMatchFound functions as the matchmaker callback invoked whenever an active pairing successfully synchronizes.
 func (gs *GameServer) notifyMatchFound(arena *game.Arena, playerIndex int) {
 	p := arena.Players[playerIndex]
 	client := gs.hub.ClientByPlayerID(p.ID)
 	if client == nil {
 		return
 	}
+
 	client.ArenaID = arena.ID
 	client.Send(api.OutMessage{
 		Action: api.NewGameAction,
@@ -73,6 +81,7 @@ func (gs *GameServer) notifyMatchFound(arena *game.Arena, playerIndex int) {
 	})
 }
 
+// onConnect handles new websocket socket entries by immediately dispatching client verification tokens.
 func (gs *GameServer) onConnect(c *Client) {
 	c.Send(api.OutMessage{
 		Action: api.ConnectedAction,
@@ -80,8 +89,10 @@ func (gs *GameServer) onConnect(c *Client) {
 	})
 }
 
+// onDisconnect scrubs queue instances upon socket drops and registers opponent updates for active maps.
 func (gs *GameServer) onDisconnect(c *Client) {
 	gs.matchmaker.Cancel(c.PlayerID)
+
 	if !c.ArenaID.IsNil() {
 		gs.hub.Broadcast(c.ArenaID, api.OutMessage{
 			Action: api.OppDisconnectedAction,
@@ -90,6 +101,7 @@ func (gs *GameServer) onDisconnect(c *Client) {
 	}
 }
 
+// onMessage evaluates inbound customer API actions and maps them onto localized endpoint handlers.
 func (gs *GameServer) onMessage(c *Client, msg api.InMessage) {
 	ar := gs.matchmaker.Arena(c.ArenaID)
 	gs.log.Received(gs.playerName(ar, c.PlayerID), string(msg.Action))
@@ -130,6 +142,7 @@ func (gs *GameServer) onMessage(c *Client, msg api.InMessage) {
 	}
 }
 
+// prepareNewGame routes the connection instances directly into matchmaking pools to seek competitors.
 func (gs *GameServer) prepareNewGame(c *Client) {
 	gs.matchmaker.Enqueue(c.PlayerID, false, func(room *game.Arena, playerIndex int) {
 		p := room.Players[playerIndex]
@@ -148,6 +161,7 @@ func (gs *GameServer) prepareNewGame(c *Client) {
 	c.Send(api.OutMessage{Action: api.SearchingOppAction, Data: nil})
 }
 
+// handleReadyToPlay tracks pre-match player confirmation checks to launch global mechanics safely.
 func (gs *GameServer) handleReadyToPlay(c *Client) {
 	ar := gs.matchmaker.ArenaByPlayerID(c.PlayerID)
 	if ar == nil {
@@ -164,6 +178,7 @@ func (gs *GameServer) handleReadyToPlay(c *Client) {
 	gs.advanceGameLoop(ar)
 }
 
+// advanceGameLoop steps through structural phases, pushing arenas between placement and live match routines.
 func (gs *GameServer) advanceGameLoop(ar *game.Arena) {
 	switch ar.Phase {
 	case game.PlacementPhase:
@@ -175,10 +190,10 @@ func (gs *GameServer) advanceGameLoop(ar *game.Arena) {
 	}
 }
 
+// advancePlayPhase monitors state triggers per internal unit activation block, applying turns and processing skips.
 func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 	activeUnit := ar.ActingUnit()
 	if activeUnit == nil {
-		// Queue exhausted — check if players have units in hand.
 		if ar.Players[0].HasUnitsInHand() || ar.Players[1].HasUnitsInHand() {
 			ar.Phase = game.PlacementPhase
 			gs.runPlacementPhase(ar)
@@ -224,6 +239,7 @@ func (gs *GameServer) advancePlayPhase(ar *game.Arena) {
 	gs.scheduleTurnTimer(ar, activeUnit.ID)
 }
 
+// runPlacementPhase dictates setup assignments during tactical unit deployment stages.
 func (gs *GameServer) runPlacementPhase(ar *game.Arena) {
 	p1Done := ar.IsPlayerPlacementDone(0)
 	p2Done := ar.IsPlayerPlacementDone(1)
@@ -241,6 +257,7 @@ func (gs *GameServer) runPlacementPhase(ar *game.Arena) {
 	gs.sendToPlayer(ar, other.ID, api.OutMessage{Action: api.WaitingForOpponent})
 }
 
+// startNewRound resets operational attributes, modifies phase maps, and signals fresh timeline sequences.
 func (gs *GameServer) startNewRound(ar *game.Arena) {
 	ar.CurrentRound++
 	ar.Phase = game.PlayPhase
@@ -249,6 +266,7 @@ func (gs *GameServer) startNewRound(ar *game.Arena) {
 		u.CurrentAP = u.BaseAP
 		u.CurrentMP = u.BaseMP
 	}
+
 	if len(ar.UnitsQueue) > 0 {
 		ar.ActiveUnitID = ar.UnitsQueue[0].ID
 	} else {
@@ -258,6 +276,7 @@ func (gs *GameServer) startNewRound(ar *game.Arena) {
 	if ar.UnitsPerPlacementPhase > 1 {
 		ar.UnitsPerPlacementPhase--
 	}
+
 	ar.Players[0].UnitsPlacedThisRound = 0
 	ar.Players[1].UnitsPlacedThisRound = 0
 
@@ -267,6 +286,7 @@ func (gs *GameServer) startNewRound(ar *game.Arena) {
 	gs.advanceGameLoop(ar)
 }
 
+// sendToPlayer dispatches an outbound websocket messaging package directly to a designated customer socket.
 func (gs *GameServer) sendToPlayer(ar *game.Arena, playerID ds.ID, msg api.OutMessage) {
 	gs.log.Sent(gs.playerName(ar, playerID), string(msg.Action))
 	c := gs.hub.ClientByPlayerID(playerID)
@@ -275,6 +295,7 @@ func (gs *GameServer) sendToPlayer(ar *game.Arena, playerID ds.ID, msg api.OutMe
 	}
 }
 
+// sendToOpponent mirrors an outbound communication event over onto the other connected competitor.
 func (gs *GameServer) sendToOpponent(ar *game.Arena, playerID ds.ID, msg api.OutMessage) {
 	for _, p := range ar.Players {
 		if p.ID != playerID {
@@ -284,9 +305,11 @@ func (gs *GameServer) sendToOpponent(ar *game.Arena, playerID ds.ID, msg api.Out
 	}
 }
 
+// handlePlaceUnit processes request parameters to attach characters securely onto map cells.
 func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
 	var req game.UnitPlacedPayload
-	if err := json.Unmarshal(raw, &req); err != nil {
+	err := json.Unmarshal(raw, &req)
+	if err != nil {
 		c.Send(errMsg("invalid unit_placed payload"))
 		return
 	}
@@ -317,9 +340,11 @@ func (gs *GameServer) handlePlaceUnit(c *Client, raw json.RawMessage) {
 	gs.advanceGameLoop(ar)
 }
 
+// handleUnitMoved unpacks parameters to transition an active unit pointer across coordinates.
 func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
 	var req game.UnitMovedPayload
-	if err := json.Unmarshal(raw, &req); err != nil {
+	err := json.Unmarshal(raw, &req)
+	if err != nil {
 		c.Send(errMsg("invalid unit_moved payload"))
 		return
 	}
@@ -331,8 +356,8 @@ func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
 	}
 
 	pl, _ := ar.PlayerByID(c.PlayerID)
-	prevPos := "null"
-	uName := "null"
+	prevPos := nullValue
+	uName := nullValue
 	u := ar.ActingUnit()
 	if u != nil {
 		prevPos = u.PosVal().String()
@@ -358,9 +383,11 @@ func (gs *GameServer) handleUnitMoved(c *Client, raw json.RawMessage) {
 	gs.broadcastStates(ar, c.PlayerID, states)
 }
 
+// handleUseAbility applies game changes prompted by operational user ability requests.
 func (gs *GameServer) handleUseAbility(c *Client, raw json.RawMessage) {
 	var req game.UseAbilityPayload
-	if err := json.Unmarshal(raw, &req); err != nil {
+	err := json.Unmarshal(raw, &req)
+	if err != nil {
 		c.Send(errMsg("invalid use_ability payload"))
 		return
 	}
@@ -386,6 +413,7 @@ func (gs *GameServer) handleUseAbility(c *Client, raw json.RawMessage) {
 	gs.broadcastStates(ar, c.PlayerID, states)
 }
 
+// handleEndTurn cancels background countdown loops and transitions actions onward to the next instance.
 func (gs *GameServer) handleEndTurn(c *Client) {
 	ar := gs.matchmaker.Arena(c.ArenaID)
 	if ar == nil {
@@ -413,13 +441,16 @@ func (gs *GameServer) handleEndTurn(c *Client) {
 	gs.advanceGameLoop(ar)
 }
 
+// errMsg builds an API payload mapping an outbound descriptive error definition string.
 func errMsg(msg string) api.OutMessage {
 	return api.OutMessage{Action: "error", Data: map[string]string{"message": msg}}
 }
 
+// NewGamePayload sanitizes and builds the contextual initialization configuration map for the client.
 func NewGamePayload(arena *game.Arena, myIndex int) game.NewGamePayload {
 	cells := make(game.BoardCells, len(arena.Board.Cells))
 
+	// Ensure safe zones belonging to the opponent are hidden/flattened for the current client.
 	for coord, cell := range arena.Board.Cells {
 		if cell == nil {
 			continue
@@ -442,6 +473,7 @@ func NewGamePayload(arena *game.Arena, myIndex int) game.NewGamePayload {
 	}
 }
 
+// broadcastStates routes specific state arrays across targeted channels (Self, Opponent, Global).
 func (gs *GameServer) broadcastStates(ar *game.Arena, playerID ds.ID, states game.ApplyStates) {
 	if len(states.Global) > 0 {
 		gs.hub.Broadcast(ar.ID, api.OutMessage{Action: api.ApplyStateAction, Data: states.Global})
@@ -454,6 +486,7 @@ func (gs *GameServer) broadcastStates(ar *game.Arena, playerID ds.ID, states gam
 	}
 }
 
+// playerName checks matches to output a plain string identifier or truncated signature hash.
 func (gs *GameServer) playerName(ar *game.Arena, playerID ds.ID) string {
 	if ar != nil {
 		p, _ := ar.PlayerByID(playerID)
@@ -464,6 +497,7 @@ func (gs *GameServer) playerName(ar *game.Arena, playerID ds.ID) string {
 	return playerID.String()[:8]
 }
 
+// checkAndHandleGameOver runs victory assessments, notifying appropriate instances of match resolution states.
 func (gs *GameServer) checkAndHandleGameOver(ar *game.Arena) bool {
 	loserIdx := ar.CheckGameOver()
 	if loserIdx < 0 {
@@ -483,6 +517,7 @@ func (gs *GameServer) checkAndHandleGameOver(ar *game.Arena) bool {
 	return true
 }
 
+// handleSurrender intercepts user quit triggers to instantly conclude match scopes with alternative win outcomes.
 func (gs *GameServer) handleSurrender(c *Client) {
 	ar := gs.matchmaker.ArenaByPlayerID(c.PlayerID)
 	if ar == nil {
@@ -497,6 +532,7 @@ func (gs *GameServer) handleSurrender(c *Client) {
 	gs.cancelTurnTimer(ar.ID)
 }
 
+// logAbilityUse writes ability metadata logs into server trace captures for active tracing support.
 func (gs *GameServer) logAbilityUse(c *Client, req game.UseAbilityPayload) {
 	ar := gs.matchmaker.Arena(c.ArenaID)
 
@@ -509,17 +545,17 @@ func (gs *GameServer) logAbilityUse(c *Client, req game.UseAbilityPayload) {
 	}
 
 	pl, _ := ar.PlayerByID(c.PlayerID)
-	uName := "null"
-	pos := "null"
+	uName := nullValue
+	pos := nullValue
 	if u := ar.ActingUnit(); u != nil {
 		uName = u.Name
 		pos = u.PosVal().String()
 	}
 
 	gs.log.Event(pl.Name, fmt.Sprintf("%s (%s) used ability '%s'"+at, uName, pos, req.AbilityID))
-
 }
 
+// scheduleTurnTimer sets up background asynchronous time triggers to limit player turn durations.
 func (gs *GameServer) scheduleTurnTimer(ar *game.Arena, unitID ds.ID) {
 	gs.cancelTurnTimer(ar.ID)
 
@@ -532,6 +568,7 @@ func (gs *GameServer) scheduleTurnTimer(ar *game.Arena, unitID ds.ID) {
 	gs.timersMu.Unlock()
 }
 
+// cancelTurnTimer halts and flushes matching active cron instances registered under an arena identity key.
 func (gs *GameServer) cancelTurnTimer(arenaID ds.ID) {
 	gs.timersMu.Lock()
 	defer gs.timersMu.Unlock()
@@ -542,8 +579,9 @@ func (gs *GameServer) cancelTurnTimer(arenaID ds.ID) {
 	}
 }
 
+// onTurnTimeout intercepts expiration events to force-advance active boards once turn times lapse.
 func (gs *GameServer) onTurnTimeout(ar *game.Arena, unitID ds.ID) {
-	// Stale timer — turn already advanced by other means.
+	// Guard against stale triggers where the turn advanced by manual input.
 	if ar.ActiveUnitID != unitID {
 		return
 	}

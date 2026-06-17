@@ -11,6 +11,11 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
+var (
+	// ErrNoEmptySafeZoneCells indicates that there are no available empty cells in the safe zone.
+	ErrNoEmptySafeZoneCells = errors.New("no empty cells in safe zone")
+)
+
 type gameState struct {
 	board  *game.Board
 	player *game.Player
@@ -28,7 +33,7 @@ func (b *Bot) pickRandomUnitFromHand() *game.Unit {
 		return nil
 	}
 
-	idx := rand.IntN(count)
+	idx := rand.IntN(count) //nolint:gosec
 	pickedUnit := units[idx]
 
 	units[idx] = units[count-1]
@@ -78,11 +83,11 @@ func (b *Bot) randomUnoccupiedSafeZonePos() (pos game.HexCoord, err error) {
 	}
 
 	if len(empty) == 0 {
-		err = errors.New("no empty cells in safe zone")
+		err = ErrNoEmptySafeZoneCells
 		return
 	}
 
-	return empty[rand.IntN(len(empty))], nil
+	return empty[rand.IntN(len(empty))], nil //nolint:gosec
 }
 
 func (b *Bot) unitByID(unitID ds.ID) *game.Unit {
@@ -160,7 +165,7 @@ func (b *Bot) randomReachableCell(u *game.Unit) *game.HexCoord {
 		return nil
 	}
 
-	cell := cells[rand.IntN(len(cells))]
+	cell := cells[rand.IntN(len(cells))] //nolint:gosec
 	return &cell
 }
 

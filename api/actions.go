@@ -1,7 +1,9 @@
 package api
 
+// Action identifies the type of message exchanged between client and server.
 type Action string
 
+// Action identifiers exchanged between client and server.
 const (
 	ConnectedAction         Action = "connected"
 	NewGameAction           Action = "new_game"

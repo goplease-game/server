@@ -27,7 +27,7 @@ func setupGame(t *testing.T) (*game.Arena, *game.Player, *game.Player) {
 	return ar, p1, p2
 }
 
-func placeUnit(t *testing.T, ar *game.Arena, playerID ds.ID, templateID int, atQ, atR int) *game.Unit {
+func placeUnit(t *testing.T, ar *game.Arena, playerID ds.ID, templateID, atQ, atR int) *game.Unit { //nolint:unparam
 	t.Helper()
 
 	_, playerIdx := ar.PlayerByID(playerID)

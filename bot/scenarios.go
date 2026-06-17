@@ -8,6 +8,7 @@ import (
 	"github.com/goplease-game/server/ability/status"
 )
 
+// IDs of unite templates.
 const (
 	BasID    = 1
 	GritID   = 2
@@ -39,7 +40,7 @@ var simScenariosByUnit = map[int][]scenario{
 		scenarioSilverBestAbility,
 	},
 	MistID: {
-		//scenarioMistTranslocationRescueAlly,
+		// scenarioMistTranslocationRescueAlly,
 		scenarioMistPurge,
 		scenarioMistMoveToAlly,
 	},

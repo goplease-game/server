@@ -47,34 +47,45 @@ type ApplyState struct {
 	UseAbility *UseAbilityPayload `json:"use_ability,omitempty"`
 }
 
+// ApplyStates collects the ApplyState mutations produced by a single game
+// action, split by audience: Global (broadcast to both players), Self
+// (sent only to the acting player), and Opponent (sent only to the
+// opponent).
 type ApplyStates struct {
 	Global   []ApplyState
 	Self     []ApplyState
 	Opponent []ApplyState
 }
 
+// ToAll appends the given states to Global, to be broadcast to both players.
 func (s *ApplyStates) ToAll(ss ...ApplyState) {
 	s.Global = append(s.Global, ss...)
 }
 
+// ToSelf appends the given states to Self, to be sent only to the acting player.
 func (s *ApplyStates) ToSelf(ss ...ApplyState) {
 	s.Self = append(s.Self, ss...)
 }
 
+// ToOpp appends the given states to Opponent, to be sent only to the opponent.
 func (s *ApplyStates) ToOpp(ss ...ApplyState) {
 	s.Opponent = append(s.Opponent, ss...)
 }
 
+// With merges another ApplyStates into s, appending each of its Global,
+// Self, and Opponent slices.
 func (s *ApplyStates) With(state ApplyStates) {
 	s.Global = append(s.Global, state.Global...)
 	s.Self = append(s.Self, state.Self...)
 	s.Opponent = append(s.Opponent, state.Opponent...)
 }
 
+// IsEmpty reports whether there are no states to apply.
 func (s *ApplyStates) IsEmpty() bool {
-	return len(s.Global) == 0 && len(s.Opponent) == 0
+	return len(s.Global) == 0 && len(s.Opponent) == 0 && len(s.Self) == 0
 }
 
+// HasSkipTurn reports whether any of the Self or Global states have SkipTurn set.
 func (s *ApplyStates) HasSkipTurn() bool {
 	for _, st := range s.Self {
 		if st.SkipTurn {

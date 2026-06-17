@@ -1,7 +1,9 @@
+// Package bot ...
 package bot
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -11,10 +13,15 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
-const (
-	replyDelay = 800 * time.Millisecond
+var (
+	// ErrBotNoConnectedMessage indicates that the bot has no connected message available.
+	ErrBotNoConnectedMessage = errors.New("bot: no connected message")
 )
 
+// replyDelay sets the artificial pause duration before a bot transmits its reaction to simulate human pacing.
+const replyDelay = 800 * time.Millisecond
+
+// Bot represents an automated agent instance that connects to the game server and acts as an opponent.
 type Bot struct {
 	client   *client
 	url      string
@@ -22,6 +29,7 @@ type Bot struct {
 	state    *gameState
 }
 
+// New instantiates and returns a pre-configured Bot runner referencing default connection addresses.
 func New() *Bot {
 	return &Bot{
 		client: newBotClient(),
@@ -29,14 +37,7 @@ func New() *Bot {
 	}
 }
 
-func (b *Bot) run() {
-	for msg := range b.client.inbox {
-		b.handle(msg)
-	}
-
-	return
-}
-
+// Connect opens a network pipeline toward the server, polls for authentication handshake tokens, and spawns processing threads.
 func (b *Bot) Connect() (ds.ID, error) {
 	err := b.client.connect(b.url)
 	if err != nil {
@@ -44,12 +45,16 @@ func (b *Bot) Connect() (ds.ID, error) {
 	}
 
 	connected := false
+	// Drain the synchronous inbox channel to intercept and evaluate authorization responses.
 	for msg := range b.client.inbox {
 		if msg.Action == api.ConnectedAction {
 			var payload struct {
 				PlayerID ds.ID `json:"player_id"`
 			}
-			json.Unmarshal(msg.Data, &payload)
+			err = json.Unmarshal(msg.Data, &payload)
+			if err != nil {
+				return ds.NilID, fmt.Errorf("[bot] Failed to unmarshal connected message: %w", err)
+			}
 			b.playerID = payload.PlayerID
 
 			connected = true
@@ -58,7 +63,7 @@ func (b *Bot) Connect() (ds.ID, error) {
 	}
 
 	if !connected {
-		return ds.NilID, fmt.Errorf("bot: no connected message")
+		return ds.NilID, ErrBotNoConnectedMessage
 	}
 
 	go b.run()
@@ -66,6 +71,12 @@ func (b *Bot) Connect() (ds.ID, error) {
 	return b.playerID, nil
 }
 
+// PlayerName samples and yields a randomized aesthetic nickname chosen out of the predefined Richard catalog.
+func PlayerName() string {
+	return richardAndPerfectFamily[rand.Intn(len(richardAndPerfectFamily))] //nolint:gosec
+}
+
+// handle intercepts structural server frames and channels them over into automated strategic routine updates.
 func (b *Bot) handle(msg api.InMessage) {
 	time.Sleep(replyDelay)
 
@@ -113,14 +124,19 @@ func (b *Bot) handle(msg api.InMessage) {
 	}
 }
 
+// reply encapsulates formatting behaviors around shipping action tokens out toward the server pipe.
 func (b *Bot) reply(a api.Action, msg any) {
 	b.client.send(a, msg)
 }
 
-func PlayerName() string {
-	return richardAndPerfectFamily[rand.Intn(len(richardAndPerfectFamily))]
+// run orchestrates the primary background thread message ingestion loop for the bot client.
+func (b *Bot) run() {
+	for msg := range b.client.inbox {
+		b.handle(msg)
+	}
 }
 
+// richardAndPerfectFamily lists the collection of stylized persona name patterns applied onto automated mock users.
 var richardAndPerfectFamily = []string{
 	"Richard Go Please",
 	"Richard Never Let You Go",

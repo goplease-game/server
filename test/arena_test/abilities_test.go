@@ -64,5 +64,4 @@ func TestBonusAttackFromHunterMark(t *testing.T) {
 			return s.ToUnitID == u2.ID && s.SetAtk != nil && *s.SetAtk == expectedNewAtk
 		},
 	})
-
 }

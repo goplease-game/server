@@ -66,7 +66,8 @@ func (c *client) readLoop(conn *websocket.Conn) {
 			return
 		}
 		var msg api.InMessage
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		err = json.Unmarshal(raw, &msg)
+		if err != nil {
 			log.Printf("[bot] bad JSON: %v", err)
 			continue
 		}
@@ -84,13 +85,15 @@ func (c *client) writeLoop(conn *websocket.Conn) {
 	for {
 		select {
 		case data := <-c.outbox:
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			err := conn.WriteMessage(websocket.TextMessage, data)
+			if err != nil {
 				log.Printf("[bot] write error: %v", err)
 				c.close()
 				return
 			}
 		case <-ticker.C:
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			err := conn.WriteMessage(websocket.PingMessage, nil)
+			if err != nil {
 				c.close()
 				return
 			}

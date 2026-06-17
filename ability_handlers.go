@@ -1,3 +1,4 @@
+// Package game ...
 package game
 
 import (
@@ -5,9 +6,7 @@ import (
 	"github.com/goplease-game/server/ability/status"
 )
 
-// Validation is handled by Arena.ValidateAbilityUse before dispatch,
-// so handlers may assume all preconditions are satisfied.
-
+// abilityHandlers maps unique ability identifiers to their corresponding execution logic functions.
 var abilityHandlers = map[ability.ID]func(a *Arena, e abilityUsedEvent) (ApplyStates, error){
 	ability.BasicMeleeAttack: basicMeleeAttackHandler,
 	ability.BasicRangeAttack: basicRangeAttackHandler,
@@ -38,30 +37,36 @@ var abilityHandlers = map[ability.ID]func(a *Arena, e abilityUsedEvent) (ApplySt
 	ability.Purify:   purifyHandler,
 }
 
+// abilityUsedEvent encapsulates the context of an ability execution, including the caster, ability data, and target.
 type abilityUsedEvent struct {
 	By *Unit
 	Ab ability.Ability
 	At HexCoord
 }
 
+// basicAttackHandler processes standard direct single-target attacks using the caster's default attack attribute.
 func basicAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 	state = a.DealDamageToUnit(e.By, target, e.By.CurrentAtk)
 	return
 }
 
+// basicMeleeAttackHandler routes execution to the shared default weapon attack handler logic.
 func basicMeleeAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	return basicAttackHandler(a, e)
 }
 
+// basicRangeAttackHandler routes execution to the shared default weapon attack handler logic.
 func basicRangeAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	return basicAttackHandler(a, e)
 }
 
+// basicMagicAttackHandler routes execution to the shared default weapon attack handler logic.
 func basicMagicAttackHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	return basicAttackHandler(a, e)
 }
 
+// fortifyHandler grants defensive shield values to all friendly units within the skill's effective radius.
 func fortifyHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
 	units := a.AlliesInRange(e.By, e.Ab.AreaRadius)
 	val := e.Ab.Effect.AddShield
@@ -76,7 +81,7 @@ func fortifyHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
 	return sts, nil
 }
 
-// TODO test this for both sides + client behaviour
+// provokeHandler marks the caster as provoking and inflicts the provoked status condition on nearby enemies.
 func provokeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	state.With(ApplyStatusToUnit(a, status.Provoking, e.By, e.By))
 
@@ -88,6 +93,7 @@ func provokeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error)
 	return state, nil
 }
 
+// shieldBashHandler delivers a localized strike that inflicts an associated status modifier upon the target.
 func shieldBashHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -95,6 +101,7 @@ func shieldBashHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err err
 	return
 }
 
+// powerPushHandler knocks a target unit backward into an empty cell or applies a status debuff if the path is blocked.
 func powerPushHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -114,6 +121,7 @@ func powerPushHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 	return state, nil
 }
 
+// gangUpHandler strikes a target unit, amplifying damage calculations if an ally occupies the space directly opposite.
 func gangUpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -128,6 +136,7 @@ func gangUpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) 
 	return
 }
 
+// eliminateHandler performs an offensive strike, refunding action points to the caster if the blow eliminates the target.
 func eliminateHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -144,17 +153,17 @@ func eliminateHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 	return
 }
 
+// translocationHandler swaps the physical grid positions of the casting unit and its selected target unit.
 func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
 	from := e.By.PosVal()
 	to := target.PosVal()
 
-	// Clear both cells first
+	// Clear both cells first before re-assigning units.
 	a.Board.Cells[from].Unit = nil
 	a.Board.Cells[to].Unit = nil
 
-	// Then place both
 	e.By.Pos = &to
 	a.Board.Cells[to].Unit = e.By
 
@@ -169,6 +178,7 @@ func translocationHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err 
 	return
 }
 
+// timeWarpHandler distorts timelines to place an operational status modifier on the targeted unit.
 func timeWarpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -176,6 +186,7 @@ func timeWarpHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error
 	return
 }
 
+// purgeHandler filters, cleanses, and strips away all positive status effects currently active on an enemy target.
 func purgeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -188,6 +199,7 @@ func purgeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	return
 }
 
+// purifyHandler dispels negative debuffs from a target, triggers healing, and applies a positive protection status.
 func purifyHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -203,12 +215,14 @@ func purifyHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) 
 	return
 }
 
+// healHandler provides a targeted single-unit health restoration effect based on ability attributes.
 func healHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
 	return healUnit(target, e.Ab.Effect.HealHP), nil
 }
 
+// equalizeHandler sums the current health of nearby allies and redistributes it evenly across them.
 func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	var sumHP int
 	units := a.AlliesInRange(e.By, e.Ab.AreaRadius)
@@ -226,11 +240,7 @@ func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error
 
 	for _, u := range units {
 		// Clamp target HP to unit's max to prevent overheal.
-		target := eq
-		if target > u.BaseHP {
-			target = u.BaseHP
-		}
-
+		target := min(eq, u.BaseHP)
 		if u.CurrentHP == target {
 			continue
 		}
@@ -244,8 +254,9 @@ func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error
 		)
 	}
 
+	// Distribute residual remainders sequentially to non-maxed units.
 	if remainder > 0 {
-		for i := 0; i < remainder; i++ {
+		for i := range remainder {
 			u := units[i%count]
 			if u.CurrentHP >= u.BaseHP {
 				continue
@@ -261,7 +272,7 @@ func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error
 					v.SetHP = new(u.CurrentHP)
 				}
 				if v.ChangeHP != nil {
-					*v.ChangeHP += 1
+					*v.ChangeHP++
 				}
 
 				state.Global[j] = v
@@ -272,6 +283,7 @@ func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error
 	return
 }
 
+// idolihuSpinHandler sweeps the adjacent area, dealing direct damage to all caught enemy targets.
 func idolihuSpinHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	units := a.EnemiesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
@@ -281,6 +293,7 @@ func idolihuSpinHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err er
 	return
 }
 
+// piercingShotHandler processes an axial line-based projectile attack that damages all enemy units along its path.
 func piercingShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	cells := a.Board.Cells.Line(e.By.PosVal(), e.At, e.Ab.AreaRadius)
 	for _, c := range cells {
@@ -293,6 +306,7 @@ func piercingShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err e
 	return
 }
 
+// battleCryHandler motivates surrounding friendly units, granting them a supportive status condition.
 func battleCryHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	units := a.AlliesInRange(e.By, e.Ab.AreaRadius)
 	for _, u := range units {
@@ -302,6 +316,7 @@ func battleCryHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err erro
 	return
 }
 
+// shadowStepHandler blinks the caster to a designated coordinate, increasing attack attributes if enemies are nearby.
 func shadowStepHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	a.relocateUnit(e.By, e.At)
 
@@ -318,12 +333,14 @@ func shadowStepHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err err
 	return
 }
 
+// huntersMarkHandler puts a targeted mark condition on a chosen unit to amplify oncoming damage.
 func huntersMarkHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
 	return ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target), nil
 }
 
+// hamstringShotHandler inflicts single-target damage alongside a movement-impairing status debuff.
 func hamstringShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
@@ -333,6 +350,7 @@ func hamstringShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err 
 	return
 }
 
+// healUnit applies health points to a targeted unit up to their maximum base health constraint.
 func healUnit(u *Unit, val int) (state ApplyStates) {
 	if u.CurrentHP == u.BaseHP {
 		return
@@ -340,7 +358,7 @@ func healUnit(u *Unit, val int) (state ApplyStates) {
 
 	u.CurrentHP += val
 	if u.CurrentHP > u.BaseHP {
-		val = val - (u.CurrentHP - u.BaseHP)
+		val -= u.CurrentHP - u.BaseHP
 		u.CurrentHP = u.BaseHP
 	}
 

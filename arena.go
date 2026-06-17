@@ -3,7 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 
 	"github.com/goplease-game/server/ability"
@@ -11,7 +11,84 @@ import (
 	"github.com/goplease-game/server/ds"
 )
 
-// Arena holds the full state of one match.
+var (
+	// ErrAbilityIsPassive is returned when attempting to activate a passive ability.
+	ErrAbilityIsPassive = errors.New("ability is passive and cannot be activated")
+
+	// ErrNotEnoughAP is returned when neither action points nor phantom AP are available.
+	ErrNotEnoughAP = errors.New("not enough AP")
+
+	// ErrTargetRequired is returned when an ability requires a target but none was provided.
+	ErrTargetRequired = errors.New("ability requires a target")
+
+	// ErrTargetOutOfRange is returned when the target is outside the ability range.
+	ErrTargetOutOfRange = errors.New("target out of range")
+
+	// ErrNoUnitAtTarget is returned when there is no unit at the target cell.
+	ErrNoUnitAtTarget = errors.New("no unit at target cell")
+
+	// ErrCannotTargetAlly is returned when an ability cannot target allied units.
+	ErrCannotTargetAlly = errors.New("cannot target ally")
+
+	// ErrCannotTargetEnemy is returned when an ability cannot target enemy units.
+	ErrCannotTargetEnemy = errors.New("cannot target enemy")
+
+	// ErrMustTargetSelf is returned when an ability must target the caster itself.
+	ErrMustTargetSelf = errors.New("must target self")
+
+	// ErrNoActingUnit is returned when there is no unit currently acting.
+	ErrNoActingUnit = errors.New("no acting unit")
+
+	// ErrNotYourTurn is returned when a player tries to act outside their turn.
+	ErrNotYourTurn = errors.New("not your turn")
+
+	// ErrNoAbilityHandler is returned when no handler exists for the ability.
+	ErrNoAbilityHandler = errors.New("no handler for ability")
+
+	// ErrNoAPAndNoPhantomAP is returned when the unit has no AP and no Phantom AP available.
+	ErrNoAPAndNoPhantomAP = errors.New("no AP or Phantom AP")
+
+	// ErrMaxPhantomAPUsed is returned when the unit has already spent max Phantom AP this turn.
+	ErrMaxPhantomAPUsed = errors.New("max Phantom AP already spent this turn")
+
+	// ErrUnitNotFoundAtPosition is returned when no unit exists at the specified position.
+	ErrUnitNotFoundAtPosition = errors.New("unit not found at position")
+
+	// ErrActingUnitNotFound is returned when there is no currently acting unit in the arena.
+	ErrActingUnitNotFound = errors.New("acting unit not found")
+
+	// ErrPlayerNotFound is returned when the specified player does not exist.
+	ErrPlayerNotFound = errors.New("player not found")
+
+	// ErrUnitNotActive is returned when the unit is not the currently active unit.
+	ErrUnitNotActive = errors.New("unit is not active")
+
+	// ErrUnitNotFound is returned when the acting unit cannot be found.
+	ErrUnitNotFound = errors.New("acting unit not found")
+
+	// ErrUnitNotOwnedByPlayer is returned when a unit does not belong to the player.
+	ErrUnitNotOwnedByPlayer = errors.New("unit does not belong to player")
+
+	// ErrCellNotFound is returned when the target cell does not exist on the board.
+	ErrCellNotFound = errors.New("cell not found")
+
+	// ErrCellOccupied is returned when the target cell already contains a unit.
+	ErrCellOccupied = errors.New("cell is occupied")
+
+	// ErrNotEnoughMovementPoints is returned when unit does not have enough movement points.
+	ErrNotEnoughMovementPoints = errors.New("not enough movement points")
+
+	// ErrNotPlacementTurn indicates that it is not the player's turn to place a unit.
+	ErrNotPlacementTurn = errors.New("not your turn to place")
+
+	// ErrCellNotInPlacementZone indicates that the cell is not a valid placement zone for the player.
+	ErrCellNotInPlacementZone = errors.New("cell is not a placement zone")
+
+	// ErrUnitNotInHand indicates that the requested unit template is not available in the player's hand.
+	ErrUnitNotInHand = errors.New("unit not found in hand")
+)
+
+// Arena holds the full state, spatial matrix, turn queues, and metadata of a single active game match.
 type Arena struct {
 	mu sync.Mutex
 
@@ -28,29 +105,20 @@ type Arena struct {
 	UnitsPerPlacementPhase int
 }
 
+// NewArena initializes and returns a pointer to a new Arena instance linking two competitive players.
 func NewArena(p1, p2 *Player) *Arena {
 	return &Arena{
 		ID:                     ds.NewID(),
 		Players:                [2]*Player{p1, p2},
 		UnitsQueue:             []*Unit{},
-		ActivePlayer:           rand.Intn(2),
+		ActivePlayer:           rand.IntN(2), //nolint:gosec
 		Phase:                  PlacementPhase,
 		Board:                  NewBoard(),
 		UnitsPerPlacementPhase: UnitsPerPlacementPhase,
 	}
 }
 
-func (a *Arena) playerByID(id ds.ID) (*Player, int) {
-	for i, p := range a.Players {
-		if p.ID == id {
-			return p, i
-		}
-	}
-
-	return nil, -1
-}
-
-// CheckGameOver returns the loser's index if one side has no living units, or -1 if game continues.
+// CheckGameOver returns the loser's array index if one side has no living units left, or -1 if the game continues.
 func (a *Arena) CheckGameOver() int {
 	for i, p := range a.Players {
 		hasAlive := false
@@ -68,6 +136,7 @@ func (a *Arena) CheckGameOver() int {
 	return -1
 }
 
+// ActingUnit finds and returns the pointer to the unit that currently possesses the active turn token.
 func (a *Arena) ActingUnit() *Unit {
 	for _, u := range a.UnitsQueue {
 		if a.ActiveUnitID == u.ID {
@@ -78,6 +147,7 @@ func (a *Arena) ActingUnit() *Unit {
 	return nil
 }
 
+// MarkPlayerReady flags the designated player as ready for the next round and returns if both players are ready.
 func (a *Arena) MarkPlayerReady(playerID ds.ID) (bothReady bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -91,15 +161,18 @@ func (a *Arena) MarkPlayerReady(playerID ds.ID) (bothReady bool) {
 	return a.IsPlayersReady()
 }
 
+// IsPlayersReady evaluates if both players in the match have toggled their ready status flags.
 func (a *Arena) IsPlayersReady() bool {
 	return a.Players[0].Ready && a.Players[1].Ready
 }
 
+// IsPlayerPlacementDone verifies if a player has exhausted their available units or filled their placement cap.
 func (a *Arena) IsPlayerPlacementDone(idx int) bool {
 	p := a.Players[idx]
 	return p.UnitsPlacedThisRound >= a.UnitsPerPlacementPhase || len(p.Units) == 0
 }
 
+// PlacementActorIndex determines which player's turn it is to deploy a unit during the placement phase.
 func (a *Arena) PlacementActorIndex() int {
 	p1 := a.Players[0].UnitsPlacedThisRound
 	p2 := a.Players[1].UnitsPlacedThisRound
@@ -110,6 +183,7 @@ func (a *Arena) PlacementActorIndex() int {
 	return 0 // tie-breaker: P1
 }
 
+// PlayerByUnitID retrieves the player instance owning the specified unit ID along with their match index.
 func (a *Arena) PlayerByUnitID(unitID ds.ID) (*Player, int) {
 	for _, u := range a.UnitsQueue {
 		if u.ID == unitID {
@@ -124,6 +198,7 @@ func (a *Arena) PlayerByUnitID(unitID ds.ID) (*Player, int) {
 	return nil, -1
 }
 
+// PlayerByID locates and returns a player object based on their personal unique identity string.
 func (a *Arena) PlayerByID(id ds.ID) (*Player, int) {
 	for i, p := range a.Players {
 		if p.ID == id {
@@ -133,30 +208,31 @@ func (a *Arena) PlayerByID(id ds.ID) (*Player, int) {
 	return nil, -1
 }
 
-func (a *Arena) PlaceUnitFromHandToBoard(templateID int, at HexCoord, playerID ds.ID) (u *Unit, err error) {
+// PlaceUnitFromHandToBoard binds a chosen unit from a player's hand onto a safe zone grid cell on the game map.
+func (a *Arena) PlaceUnitFromHandToBoard(templateID int, at HexCoord, playerID ds.ID) (*Unit, error) {
 	player, playerIdx := a.PlayerByID(playerID)
 	if player == nil {
-		return nil, fmt.Errorf("player %q not found", playerID)
+		return nil, ErrPlayerNotFound
 	}
 
 	if a.PlacementActorIndex() != playerIdx {
-		return nil, fmt.Errorf("not your turn to place")
+		return nil, ErrNotPlacementTurn
 	}
 
 	cell, ok := a.Board.Cells[at]
 	if !ok || cell == nil {
-		return nil, fmt.Errorf("cell %q not found", at)
+		return nil, ErrCellNotFound
 	}
 	if cell.Unit != nil {
-		return nil, fmt.Errorf("cell %q already has a unit", at)
+		return nil, ErrCellOccupied
 	}
 	if !cell.IsSafeZone || cell.SafeZonePlayer != playerIdx {
-		return nil, fmt.Errorf("cell %q is not a placement zone", at)
+		return nil, ErrCellNotInPlacementZone
 	}
 
-	u = player.PopUnitFromHand(templateID)
+	u := player.PopUnitFromHand(templateID)
 	if u == nil {
-		return nil, fmt.Errorf("unit with template %d not found in hand", templateID)
+		return nil, ErrUnitNotInHand
 	}
 
 	u.Pos = &at
@@ -167,43 +243,37 @@ func (a *Arena) PlaceUnitFromHandToBoard(templateID int, at HexCoord, playerID d
 	return u, nil
 }
 
+// MoveUnit validates movement cost, consumes movement points, and transitions a unit to a target cell.
 func (a *Arena) MoveUnit(unitID ds.ID, to HexCoord, playerID ds.ID) (sts ApplyStates, err error) {
 	player, _ := a.PlayerByID(playerID)
 	if player == nil {
-		err = fmt.Errorf("player %q not found", playerID)
-		return
+		return ApplyStates{}, ErrPlayerNotFound
 	}
 
 	if a.ActiveUnitID != unitID {
-		err = fmt.Errorf("unit %q is not active", unitID)
-		return
+		return ApplyStates{}, ErrUnitNotActive
 	}
 
 	u := a.ActingUnit()
 	if u == nil {
-		err = fmt.Errorf("acting unit not found")
-		return
+		return ApplyStates{}, ErrUnitNotFound
 	}
 
 	if u.OwnerID != playerID {
-		err = fmt.Errorf("unit %q does not belong to player %q", unitID, playerID)
-		return
+		return ApplyStates{}, ErrUnitNotOwnedByPlayer
 	}
 
 	cell, ok := a.Board.Cells[to]
 	if !ok || cell == nil {
-		err = fmt.Errorf("cell %q not found", to)
-		return
+		return ApplyStates{}, ErrCellNotFound
 	}
 	if cell.Unit != nil {
-		err = fmt.Errorf("cell %q is occupied", to)
-		return
+		return ApplyStates{}, ErrCellOccupied
 	}
 
 	dist := u.Pos.Distance(to)
 	if dist > u.CurrentMP {
-		err = fmt.Errorf("not enough MP: need %d, have %d", dist, u.CurrentMP)
-		return
+		return ApplyStates{}, ErrNotEnoughMovementPoints
 	}
 
 	u.CurrentMP -= dist
@@ -212,28 +282,19 @@ func (a *Arena) MoveUnit(unitID ds.ID, to HexCoord, playerID ds.ID) (sts ApplySt
 	return sts, nil
 }
 
-// relocateUnit moves a unit to a new cell and applies onMove triggers.
-// No validation — caller is responsible.
-func (a *Arena) relocateUnit(u *Unit, to HexCoord) (sts ApplyStates) {
-	a.Board.Cells[u.PosVal()].Unit = nil
-	u.Pos = &to
-	a.Board.Cells[to].Unit = u
-
-	return triggers.UnitMoved(a, u)
-}
-
+// EndTurn decrements active statuses, cycles skill cooldowns, decays shield layers, and prompts the unit queue forward.
 func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 	if a.ActiveUnitID.IsNil() {
 		if a.Players[a.ActivePlayer].ID != playerID {
-			err = fmt.Errorf("not your turn")
+			err= ErrNotYourTurn
 			return
 		}
-		return // queue exhausted — advanceGameLoop will handle it
+		return
 	}
 
 	u := a.ActingUnit()
 	if u == nil {
-		err = errors.New("acting unit not found")
+		err = ErrActingUnitNotFound
 		return
 	}
 	if u.OwnerID != playerID {
@@ -242,7 +303,6 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 
 	// Decrease status durations
 	for t, sv := range u.Statuses {
-		// before status removed, trigger onTurnEnd
 		h, ok := statusHandlers[t]
 		if ok && h != nil && h.onTurnEnd != nil {
 			state.With(h.onTurnEnd(a, u, sv))
@@ -283,25 +343,12 @@ func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 		state.ToAll(ApplyState{SetShield: &u.CurrentShield, ToUnitID: u.ID})
 	}
 
-	// Advance to next unit in queue
 	a.advanceActiveUnit()
 
 	return state, nil
 }
 
-func (a *Arena) advanceActiveUnit() {
-	for i, u := range a.UnitsQueue {
-		if u.ID == a.ActiveUnitID {
-			if i+1 < len(a.UnitsQueue) {
-				a.ActiveUnitID = a.UnitsQueue[i+1].ID
-			} else {
-				a.ActiveUnitID = ds.NilID
-			}
-			return
-		}
-	}
-}
-
+// UnitAt queries the board coordinates and returns the occupant unit pointer if present.
 func (a *Arena) UnitAt(pos HexCoord) *Unit {
 	c := a.Board.Cells[pos]
 	if c != nil {
@@ -311,25 +358,28 @@ func (a *Arena) UnitAt(pos HexCoord) *Unit {
 	return nil
 }
 
+// ShouldUnitAt extracts the unit sitting on a tile or throws an descriptive error message if empty.
 func (a *Arena) ShouldUnitAt(pos HexCoord) (*Unit, error) {
 	unit := a.UnitAt(pos)
 	if unit == nil {
-		return nil, fmt.Errorf("unit not found at: %s", pos)
+		return nil, ErrUnitNotFoundAtPosition
 	}
 
 	return unit, nil
 }
 
+// UseAbility validates action point reserves, runs validation mechanics, and executes custom ability handler functions.
 func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplyStates, err error) {
 	u := a.ActingUnit()
 	if u == nil {
-		return ApplyStates{}, fmt.Errorf("no acting unit")
+		return ApplyStates{}, ErrNoActingUnit
 	}
 	if u.OwnerID != playerID {
-		return ApplyStates{}, fmt.Errorf("not your turn")
+		return ApplyStates{}, ErrNotYourTurn
 	}
 
 	ab := ability.ByID(req.AbilityID)
+
 	err = a.ValidateAbilityUse(u, ab, req.Target)
 	if err != nil {
 		return
@@ -347,24 +397,24 @@ func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplySt
 			state.ToAll(ApplyState{SetAP: &u.CurrentAP, ToUnitID: u.ID})
 		} else {
 			player, _ := a.PlayerByID(playerID)
+
 			if player == nil || player.PhantomAP < 1 {
-				err = fmt.Errorf("unit %s has no AP or Phantom AP", u.ID)
-				return
+				return ApplyStates{}, ErrNoAPAndNoPhantomAP
 			}
 			if u.PhantomAPUsedThisTurn >= MaxPhantomAPPerUnitPerTurn {
-				err = fmt.Errorf("unit %s already spent max Phantom AP this turn", u.ID)
-				return
+				return ApplyStates{}, ErrMaxPhantomAPUsed
 			}
+
 			player.PhantomAP--
 			u.PhantomAPUsedThisTurn++
+
 			state.ToSelf(ApplyState{SetPhantomAP: &player.PhantomAP})
 		}
 	}
 
 	handler, ok := abilityHandlers[req.AbilityID]
 	if !ok {
-		err = fmt.Errorf("no handler for ability: %s", req.AbilityID)
-		return
+		return ApplyStates{}, ErrNoAbilityHandler
 	}
 
 	event := abilityUsedEvent{
@@ -376,6 +426,7 @@ func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplySt
 	if err != nil {
 		return state, err
 	}
+
 	state.With(handlerStates)
 	state.ToOpp(ApplyState{
 		ToUnitID:   u.ID,
@@ -387,10 +438,7 @@ func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplySt
 	return state, nil
 }
 
-// DealDamageToUnit applies val damage to the unit, accounting for shield absorption.
-// Shield absorbs damage first and any excess damage carries over to HP.
-// If HP reaches zero, the unit is marked as dead and removed from the queue.
-// Returns a slice of ApplyState mutations to be sent to the client for visual feedback.
+// DealDamageToUnit processes an incoming damage event against a unit, reducing shields first before harming health points.
 func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStates) {
 	defer func() {
 		if !state.IsEmpty() {
@@ -406,7 +454,7 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 		if target.CurrentShield < val {
 			shieldRemoved = target.CurrentShield
 			target.CurrentShield = 0
-			val = val - shieldRemoved
+			val -= shieldRemoved
 		} else {
 			shieldRemoved = val
 			target.CurrentShield -= val
@@ -421,7 +469,7 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 		)
 	}
 
-	// shield fully absorbed the damage
+	// Shield fully absorbed the damage
 	if val == 0 {
 		return state
 	}
@@ -444,7 +492,6 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 			a.RemoveUnitFromQueue(target.ID)
 			state.ToAll(ApplyState{IsDead: true, ToUnitID: target.ID})
 
-			// Recalculate after unit is removed from queue so counts are correct.
 			state.With(a.RecalculatePhantomAP())
 		}
 	}
@@ -452,7 +499,7 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 	return
 }
 
-// RemoveUnitFromQueue removes a dead unit and advances ActiveUnitID if needed.
+// RemoveUnitFromQueue extracts a dead or missing unit out of the initiative loop array and shifts indices if needed.
 func (a *Arena) RemoveUnitFromQueue(unitID ds.ID) {
 	removedIdx := -1
 	for i, u := range a.UnitsQueue {
@@ -478,23 +525,20 @@ func (a *Arena) RemoveUnitFromQueue(unitID ds.ID) {
 	}
 }
 
-// RecalculatePhantomAP recalculates the Phantom AP pool for both players.
-// Phantom AP = max(0, enemy living units - friendly living units).
+// RecalculatePhantomAP dynamically calculates the compensation action points assigned due to asymmetrical team populations.
 func (a *Arena) RecalculatePhantomAP() (state ApplyStates) {
 	counts := [2]int{}
 	for i, p := range a.Players {
 		for _, u := range a.UnitsQueue {
 			if u.OwnerID == p.ID {
-				counts[i]++
+				counts[i]++ //nolint:gosec
 			}
 		}
 	}
 
 	for i := range a.Players {
-		delta := counts[1-i] - counts[i]
-		if delta < 0 {
-			delta = 0
-		}
+		delta := counts[1-i] - counts[i] //nolint:gosec
+		delta = max(0, delta)
 		a.Players[i].PhantomAP = delta
 	}
 
@@ -504,6 +548,7 @@ func (a *Arena) RecalculatePhantomAP() (state ApplyStates) {
 	return state
 }
 
+// AlliesInRange locates friendly units sitting within a radial threshold relative to a certain coordinate source.
 func (a *Arena) AlliesInRange(u *Unit, radius int) []*Unit {
 	units := []*Unit{}
 	cells := a.Board.Cells.InRangeHavingUnit(u.PosVal(), radius)
@@ -518,6 +563,7 @@ func (a *Arena) AlliesInRange(u *Unit, radius int) []*Unit {
 	return units
 }
 
+// EnemiesInRange locates opposing force units positioned inside a radial zone extending from the target host.
 func (a *Arena) EnemiesInRange(u *Unit, radius int) []*Unit {
 	units := []*Unit{}
 	cells := a.Board.Cells.InRangeHavingUnit(u.PosVal(), radius)
@@ -532,6 +578,7 @@ func (a *Arena) EnemiesInRange(u *Unit, radius int) []*Unit {
 	return units
 }
 
+// AlliesInRangeHavingAbility filters and returns friendly units possessing a specific ability within range.
 func (a *Arena) AlliesInRangeHavingAbility(u *Unit, radius int, abID ability.ID) []*Unit {
 	units := []*Unit{}
 	cells := a.Board.Cells.InRangeHavingUnitAbility(u.PosVal(), radius, abID)
@@ -546,6 +593,7 @@ func (a *Arena) AlliesInRangeHavingAbility(u *Unit, radius int, abID ability.ID)
 	return units
 }
 
+// EnemiesInRangeHavingAbility filters and returns opposing units possessing a specific ability within range.
 func (a *Arena) EnemiesInRangeHavingAbility(u *Unit, radius int, abID ability.ID) []*Unit {
 	units := []*Unit{}
 	cells := a.Board.Cells.InRangeHavingUnitAbility(u.PosVal(), radius, abID)
@@ -560,6 +608,7 @@ func (a *Arena) EnemiesInRangeHavingAbility(u *Unit, radius int, abID ability.ID
 	return units
 }
 
+// CountEnemiesInRange aggregates the raw summation of nearby enemy units, optimization breaks early if requested.
 func (a *Arena) CountEnemiesInRange(u *Unit, rangeN int, atLeastOpt ...int) (count int) {
 	var atLeast int
 	if len(atLeastOpt) > 0 {
@@ -585,6 +634,7 @@ func (a *Arena) CountEnemiesInRange(u *Unit, rangeN int, atLeastOpt ...int) (cou
 	return
 }
 
+// CellOccupied checks the coordinate cells mapping index to confirm whether any living unit occupies it.
 func (a *Arena) CellOccupied(at HexCoord) (ok bool) {
 	c := a.Board.Cells[at]
 	if c == nil {
@@ -594,6 +644,7 @@ func (a *Arena) CellOccupied(at HexCoord) (ok bool) {
 	return c.Unit != nil
 }
 
+// ValidateAbilityUse guarantees target coordinates match structural requirements and rules of active execution.
 func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *HexCoord) error {
 	err := caster.ValidateAbilityUse(ab.ID)
 	if err != nil {
@@ -601,7 +652,7 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 	}
 
 	if ab.IsPassive {
-		return fmt.Errorf("ability %s is passive and cannot be activated", ab.ID)
+		return abilityErr(ab.ID, ErrAbilityIsPassive)
 	}
 
 	for t, sv := range caster.Statuses {
@@ -609,7 +660,9 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 		if h == nil || h.validateAbilityTarget == nil {
 			continue
 		}
-		if err = h.validateAbilityTarget(a, caster, ab, targetAt, sv); err != nil {
+
+		err := h.validateAbilityTarget(a, caster, ab, targetAt, sv)
+		if err != nil {
 			return err
 		}
 	}
@@ -617,12 +670,12 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 	if !ab.IsPassive && caster.CurrentAP < 1 {
 		player, _ := a.PlayerByID(caster.OwnerID)
 		if player == nil || player.PhantomAP < 1 {
-			return fmt.Errorf("not enough AP")
+			return abilityErr(ab.ID, ErrNotEnoughAP)
 		}
 	}
 
 	if ab.Activation != ability.Instant && targetAt == nil {
-		return fmt.Errorf("ability %s requires a target", ab.ID)
+		return abilityErr(ab.ID, ErrTargetRequired)
 	}
 
 	if targetAt == nil || ab.Activation == ability.Instant {
@@ -635,8 +688,7 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 	}
 
 	if caster.Pos.Distance(*targetAt) > rangeN {
-		return fmt.Errorf("target out of range: distance %d, range %d",
-			caster.Pos.Distance(*targetAt), rangeN)
+		return abilityErr(ab.ID, ErrTargetOutOfRange)
 	}
 
 	target := a.UnitAt(*targetAt)
@@ -644,44 +696,35 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 	switch ab.TargetMode {
 	case ability.TargetEnemies, ability.TargetEnemiesAndSelf:
 		if target == nil {
-			return fmt.Errorf("ability %s: no unit at target cell", ab.ID)
+			return abilityErr(ab.ID, ErrNoUnitAtTarget)
 		}
 		if target.OwnerID == caster.OwnerID && ab.TargetMode == ability.TargetEnemies {
-			return fmt.Errorf("ability %s: cannot target ally", ab.ID)
+			return abilityErr(ab.ID, ErrCannotTargetAlly)
 		}
 
 	case ability.TargetAllies, ability.TargetAlliesAndSelf:
 		if target == nil {
-			return fmt.Errorf("ability %s: no unit at target cell", ab.ID)
+			return abilityErr(ab.ID, ErrNoUnitAtTarget)
 		}
 		if target.OwnerID != caster.OwnerID {
-			return fmt.Errorf("ability %s: cannot target enemy", ab.ID)
+			return abilityErr(ab.ID, ErrCannotTargetEnemy)
 		}
 
 	case ability.TargetSelf:
 		if target == nil || target.ID != caster.ID {
-			return fmt.Errorf("ability %s: must target self", ab.ID)
+			return abilityErr(ab.ID, ErrMustTargetSelf)
 		}
 
 	case ability.TargetAny:
 		if target == nil {
-			return fmt.Errorf("ability %s: no unit at target", ab.ID)
-		}
-
-	case "": // no target mode — free cell or AOE, no unit required
-	}
-
-	// Activation-specific checks
-	switch ab.Activation {
-	case ability.SelectFreeCell:
-		if target != nil {
-			return fmt.Errorf("ability %s: target cell is occupied", ab.ID)
+			return abilityErr(ab.ID, ErrNoUnitAtTarget)
 		}
 	}
 
 	return nil
 }
 
+// unitByID resolves and yields a matching internal unit object pointer using its unique structural identity key.
 func (a *Arena) unitByID(unitID ds.ID) *Unit {
 	for _, u := range a.UnitsQueue {
 		if u.ID == unitID {
@@ -690,4 +733,42 @@ func (a *Arena) unitByID(unitID ds.ID) *Unit {
 	}
 
 	return nil
+}
+
+// advanceActiveUnit shifts the turn ownership pointer onto the next sequential unit index inside the initiative list.
+func (a *Arena) advanceActiveUnit() {
+	for i, u := range a.UnitsQueue {
+		if u.ID == a.ActiveUnitID {
+			if i+1 < len(a.UnitsQueue) {
+				a.ActiveUnitID = a.UnitsQueue[i+1].ID
+			} else {
+				a.ActiveUnitID = ds.NilID
+			}
+			return
+		}
+	}
+}
+
+// relocateUnit updates spatial matrix references and executes corresponding trigger registrations for movement.
+func (a *Arena) relocateUnit(u *Unit, to HexCoord) (sts ApplyStates) {
+	a.Board.Cells[u.PosVal()].Unit = nil
+	u.Pos = &to
+	a.Board.Cells[to].Unit = u
+
+	return triggers.UnitMoved(a, u)
+}
+
+// playerByID resolves and returns a player reference and their index position from a given unique ID.
+func (a *Arena) playerByID(id ds.ID) (*Player, int) {
+	for i, p := range a.Players {
+		if p.ID == id {
+			return p, i
+		}
+	}
+
+	return nil, -1
+}
+
+func abilityErr(id ability.ID, err error) error {
+	return fmt.Errorf("ability %s: %w", string(id), err)
 }
