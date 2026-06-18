@@ -13,7 +13,8 @@ import (
 )
 
 // matchmakingTimeout defines the duration a player can remain in the queue before a computer opponent is subbed in.
-const matchmakingTimeout = 2 * time.Second
+// TODO config
+const matchmakingTimeout = 15 * time.Second
 
 // Callback represents the signaling function triggered once an arena allocation or player pairing resolves.
 type Callback func(arena *game.Arena, playerIndex int)

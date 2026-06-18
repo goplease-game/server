@@ -4,7 +4,6 @@ A simple game server designed for turn-based games, communicating via WebSockets
 
 ## Getting Started
 
-### Running the Server
 To start the server, run:
 ```bash
 go run cmd/server/main.go
