@@ -33,6 +33,7 @@ linters:
     - contextcheck
     - mnd
     - goprintffuncname
+    - forcetypeassert
 
   exclusions:
     # Mode of the generated files analysis.

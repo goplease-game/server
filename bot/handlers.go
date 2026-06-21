@@ -205,7 +205,7 @@ func (b *Bot) handleGameOver(action api.Action) {
 		log.Println("[bot] opponent surrendered")
 	}
 
-	b.client.close()
+	b.t.close()
 }
 
 func (b *Bot) handleServerError(data json.RawMessage) {
@@ -214,5 +214,5 @@ func (b *Bot) handleServerError(data json.RawMessage) {
 
 func (b *Bot) handleOppDisconnected() {
 	log.Println("[bot] gg bye!")
-	b.client.close()
+	b.t.close()
 }

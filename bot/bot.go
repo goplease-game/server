@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"time"
 
+	game "github.com/goplease-game/server"
 	"github.com/goplease-game/server/api"
 	"github.com/goplease-game/server/ds"
 )
@@ -23,35 +24,41 @@ const replyDelay = 800 * time.Millisecond
 
 // Bot represents an automated agent instance that connects to the game server and acts as an opponent.
 type Bot struct {
-	client   *client
-	url      string
+	t        transport
 	playerID ds.ID
 	state    *gameState
 }
 
 // New instantiates and returns a pre-configured Bot runner referencing default connection addresses.
 func New() *Bot {
+	return &Bot{t: newWSTransport("ws://localhost:8090/play/")} // TODO proper config
+}
+
+// NewWithSession creates a Bot that plays directly against a Session
+// without any network transport.
+func NewWithSession(playerID ds.ID, session *game.Session) *Bot {
 	return &Bot{
-		client: newBotClient(),
-		url:    "ws://localhost:8090/play/", // TODO config
+		playerID: playerID,
+		t:        newChanTransport(playerID, session),
 	}
 }
 
 // Connect opens a network pipeline toward the server, polls for authentication handshake tokens, and spawns processing threads.
 func (b *Bot) Connect() (ds.ID, error) {
-	err := b.client.connect(b.url)
+	ws := b.t.(*wsTransport)
+	err := ws.c.connect(ws.url)
 	if err != nil {
 		return ds.NilID, fmt.Errorf("[bot] Failed to connect: %w", err)
 	}
 
 	connected := false
 	// Drain the synchronous inbox channel to intercept and evaluate authorization responses.
-	for msg := range b.client.inbox {
+	for msg := range b.t.Inbox() {
 		if msg.Action == api.ConnectedAction {
 			var payload struct {
 				PlayerID ds.ID `json:"player_id"`
 			}
-			err = json.Unmarshal(msg.Data, &payload)
+			err := json.Unmarshal(msg.Data, &payload)
 			if err != nil {
 				return ds.NilID, fmt.Errorf("[bot] Failed to unmarshal connected message: %w", err)
 			}
@@ -66,9 +73,16 @@ func (b *Bot) Connect() (ds.ID, error) {
 		return ds.NilID, ErrBotNoConnectedMessage
 	}
 
-	go b.run()
+	go b.Run()
 
 	return b.playerID, nil
+}
+
+// Run starts the bot message processing loop.
+func (b *Bot) Run() {
+	for msg := range b.t.Inbox() {
+		b.handle(msg)
+	}
 }
 
 // PlayerName samples and yields a randomized aesthetic nickname chosen out of the predefined Richard catalog.
@@ -81,7 +95,7 @@ func (b *Bot) handle(msg api.InMessage) {
 	time.Sleep(replyDelay)
 
 	if len(msg.Data) > 0 {
-		fmt.Printf("[BOT] JSON: %s\n", string(msg.Data))
+		fmt.Printf("[BOT] %s: %s\n", msg.Action, string(msg.Data))
 	}
 
 	switch msg.Action {
@@ -108,7 +122,6 @@ func (b *Bot) handle(msg api.InMessage) {
 		b.handleOpponentUnitPlaced(msg.Data)
 
 	case api.NewRound:
-		// TODO
 		b.handleNewRound()
 
 	case api.UnitMovedAction:
@@ -118,6 +131,8 @@ func (b *Bot) handle(msg api.InMessage) {
 		b.handleApplyState(msg.Data)
 	case api.OppDisconnectedAction:
 		b.handleOppDisconnected()
+	case api.ActiveUnitChangedAction:
+		// active unit is only for visuals now
 
 	default:
 		log.Printf("[bot] unhandled action: %s", msg.Action)
@@ -126,14 +141,8 @@ func (b *Bot) handle(msg api.InMessage) {
 
 // reply encapsulates formatting behaviors around shipping action tokens out toward the server pipe.
 func (b *Bot) reply(a api.Action, msg any) {
-	b.client.send(a, msg)
-}
-
-// run orchestrates the primary background thread message ingestion loop for the bot client.
-func (b *Bot) run() {
-	for msg := range b.client.inbox {
-		b.handle(msg)
-	}
+	fmt.Printf("[BOT REPLY] %s: %v\n", a, msg)
+	b.t.send(a, msg)
 }
 
 // richardAndPerfectFamily lists the collection of stylized persona name patterns applied onto automated mock users.
