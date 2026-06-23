@@ -3,6 +3,7 @@ package bot
 import (
 	"encoding/json"
 	"log"
+	"time"
 
 	game "github.com/goplease-game/server"
 	"github.com/goplease-game/server/api"
@@ -93,6 +94,7 @@ func (b *Bot) handlePlayUnit(data json.RawMessage) {
 			UnitID: u.ID,
 			Coord:  *act.moveUnit,
 		})
+		time.Sleep(replyDelay)
 	}
 
 	if act.useAbility != nil {
@@ -101,6 +103,7 @@ func (b *Bot) handlePlayUnit(data json.RawMessage) {
 			AbilityID: act.useAbility.abilityID,
 			Target:    act.useAbility.target,
 		})
+		time.Sleep(replyDelay)
 	}
 
 	b.reply(api.EndTurnAction, nil)
