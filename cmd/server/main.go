@@ -12,17 +12,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/goplease-game/server/config"
 	"github.com/goplease-game/server/ws"
 )
 
-const (
-	// TODO proper config.
-	RWTimeout = 10 * time.Second
-	Host      = "127.0.0.1"
-	Port      = "8090"
-)
-
 func main() {
+	config := config.ParseCLIArgs()
+	log.Printf("server config: host: %s, port: %s, rwTimeout: %s\n\n",
+		config.Host, config.Port, config.RWTimeout.String())
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit,
 		syscall.SIGTERM,
@@ -40,12 +38,12 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/play/", hub.ServeWS)
 
-	addr := net.JoinHostPort(Host, Port)
+	addr := net.JoinHostPort(config.Host, config.Port)
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  RWTimeout,
-		WriteTimeout: RWTimeout,
+		ReadTimeout:  config.RWTimeout,
+		WriteTimeout: config.RWTimeout,
 	}
 
 	serverErrors := make(chan error, 1)
@@ -54,6 +52,7 @@ func main() {
 		log.Printf("[goplease] server running at %s", addr)
 		err := server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Println("servererr", err)
 			serverErrors <- err
 		}
 	}()
