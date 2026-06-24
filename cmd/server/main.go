@@ -15,12 +15,6 @@ import (
 	"github.com/goplease-game/server/ws"
 )
 
-const (
-	// TODO proper config.
-	RWTimeout = 10 * time.Second
-	Host      = "127.0.0.1"
-	Port      = "8090"
-)
 
 func main() {
 	config := parseArgs()

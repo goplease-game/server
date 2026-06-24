@@ -24,7 +24,6 @@ go run ./cmd/server --timeout 10s
 go run ./cmd/server --host <some-ip-addr>
 ```
 
-<!-- The server will start on port `8090`. If you need to change it, simply update the `Port` constant in [`cmd/server/main.go`](cmd/server/main.go). -->
 
 ## Contributing
 We don't have a formal set of rules for contributions yet; everyone is welcome! We appreciate everything from critiques and suggestions to bug fixes and new features. Feel free to open an Issue or submit a Pull Request.

@@ -1,3 +1,4 @@
+// Package main
 package main
 
 import (
@@ -9,37 +10,35 @@ import (
 )
 
 const (
-	// Default timeout for both reads and writes to a socket
+	// Default timeout for both reads and writes to a socket.
 	defaultRWTimeout = 10 * time.Second
 	defaultHost      = "127.0.0.1"
 	defaultPort      = "8080"
 )
 
 type Config struct {
-	// socket timeout read and write operations
+	// socket timeout read and write operations.
 	rwTimeout time.Duration
 
-	// address of the machine
+	// address of the machine.
 	host string
 
-	// port goplease server will bind to
+	// port goplease server will bind to.
 	port string
 }
 
 // defaultConfig provides a config with [defaultRWTimeout],
-// [defaultHost] and [defaultPort]
+// [defaultHost] and [defaultPort].
 func defaultConfig() *Config {
-
 	return &Config{
 		rwTimeout: defaultRWTimeout,
 		host:      defaultHost,
 		port:      defaultPort,
 	}
-
 }
 
 // NewConfig constructs a new config with the arguments, provided they
-// are correct. Otherwise incorrect fields are replaced with defaults
+// are correct. Otherwise incorrect fields are replaced with defaults.
 func NewConfig(host, port string, rwTimeout time.Duration) *Config {
 	cfg := defaultConfig()
 
@@ -51,7 +50,8 @@ func NewConfig(host, port string, rwTimeout time.Duration) *Config {
 
 	// makes sure that port isn't a negative number
 	// bitSize 16 makes sure max port number is 65535
-	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+	_, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
 		fmt.Println("invalid port provided, using default port: ", defaultPort)
 	} else {
 		cfg.port = port
