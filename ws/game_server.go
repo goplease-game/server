@@ -12,20 +12,18 @@ import (
 
 // GameServer wires the WebSocket communication layer with the core game domain.
 type GameServer struct {
-	hub        *Hub
-	matchmaker *match.Matchmaker
-	log        *ActionLogger
-	sessions   map[ds.ID]*game.Session
-
-	mu sync.Mutex
+	hub           *Hub
+	matchmaker    *match.Matchmaker
+	log           *ActionLogger
+	sessions      sync.Map // ds.ID → *game.Session
+	playerSession sync.Map // ds.ID → *game.Session
 }
 
 // NewGameServer instantiates and returns a fully initialized GameServer.
 func NewGameServer(hub *Hub) *GameServer {
 	gs := &GameServer{
-		hub:      hub,
-		log:      NewActionLogger(true),
-		sessions: make(map[ds.ID]*game.Session),
+		hub: hub,
+		log: NewActionLogger(true),
 	}
 	gs.matchmaker = match.New(gs.notifyMatchFound)
 	return gs
@@ -89,10 +87,7 @@ func (gs *GameServer) onMessage(c *Client, msg api.InMessage) {
 
 // prepareNewGame enqueues the client in matchmaking.
 func (gs *GameServer) prepareNewGame(c *Client) {
-	gs.matchmaker.Enqueue(c.PlayerID, false, func(arena *game.Arena, _ int) {
-		gs.startSession(arena, c)
-	})
-
+	gs.matchmaker.Enqueue(c.PlayerID, false, gs.notifyMatchFound)
 	c.Send(api.OutMessage{Action: api.SearchingOppAction})
 }
 
@@ -108,20 +103,26 @@ func (gs *GameServer) notifyMatchFound(arena *game.Arena, playerIndex int) {
 
 // startSession creates a Session for the arena and wires the WebSocket client to it.
 func (gs *GameServer) startSession(arena *game.Arena, c *Client) {
-	gs.mu.Lock()
-	_, exists := gs.sessions[arena.ID]
-	if !exists {
+	_, loaded := gs.sessions.LoadOrStore(arena.ID, (*game.Session)(nil))
+	if !loaded {
 		p1 := arena.Players[0]
 		p2 := arena.Players[1]
 		session := game.NewSessionFromSnapshot(arena)
-		gs.sessions[arena.ID] = session
+		session.OnGameOver = func() {
+			gs.sessions.Delete(arena.ID)
+			gs.playerSession.Delete(p1.ID)
+			gs.playerSession.Delete(p2.ID)
+			gs.matchmaker.CloseArena(arena.ID)
+		}
+		gs.sessions.Store(arena.ID, session)
+		gs.playerSession.Store(p1.ID, session)
+		gs.playerSession.Store(p2.ID, session)
 
 		go gs.pumpEvents(session.P1Events, p1.ID)
 		go gs.pumpEvents(session.P2Events, p2.ID)
 
 		session.Start()
 	}
-	gs.mu.Unlock()
 
 	c.ArenaID = arena.ID
 }
@@ -138,16 +139,12 @@ func (gs *GameServer) pumpEvents(events <-chan api.OutMessage, playerID ds.ID) {
 
 // sessionByPlayerID returns the active Session for the given player.
 func (gs *GameServer) sessionByPlayerID(playerID ds.ID) *game.Session {
-	gs.mu.Lock()
-	defer gs.mu.Unlock()
-	for _, s := range gs.sessions {
-		for _, p := range s.Arena.Players {
-			if p.ID == playerID {
-				return s
-			}
-		}
+	v, ok := gs.playerSession.Load(playerID)
+	if !ok {
+		return nil
 	}
-	return nil
+	
+	return v.(*game.Session)
 }
 
 // errMsg builds a standard error OutMessage.

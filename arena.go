@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sync"
-
 	"github.com/goplease-game/server/ability"
 	"github.com/goplease-game/server/ability/status"
 	"github.com/goplease-game/server/ds"

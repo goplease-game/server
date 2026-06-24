@@ -19,10 +19,11 @@ type Event struct {
 // Session runs a self-contained game between two players without any
 // network, hub, or matchmaking dependencies.
 type Session struct {
-	Arena    *Arena
-	P1Events chan api.OutMessage
-	P2Events chan api.OutMessage
-	timers   map[ds.ID]*time.Timer
+	Arena      *Arena
+	P1Events   chan api.OutMessage
+	P2Events   chan api.OutMessage
+	timers     map[ds.ID]*time.Timer
+	OnGameOver func()
 }
 
 // NewSession creates a Session for the given players and starts the
@@ -98,7 +99,7 @@ func (s *Session) handleReadyToPlay(playerID ds.ID) {
 	if !s.Arena.MarkPlayerReady(playerID) {
 		return
 	}
-
+	log.Printf("[session] both ready, advancing game loop")
 	s.advanceGameLoop()
 }
 
@@ -195,6 +196,9 @@ func (s *Session) handleSurrender(playerID ds.ID) {
 	s.sendToOpponent(playerID, api.OutMessage{Action: api.OppSurrenderedAction})
 	s.Arena.Phase = GameOverPhase
 	s.cancelTimer(s.Arena.ID)
+	if s.OnGameOver != nil {
+		s.OnGameOver()
+	}
 }
 
 // advanceGameLoop steps through placement and play phases.
@@ -325,6 +329,9 @@ func (s *Session) checkAndHandleGameOver() bool {
 	s.send(winner.ID, api.OutMessage{Action: api.YouWinAction})
 	s.Arena.Phase = GameOverPhase
 	s.cancelTimer(s.Arena.ID)
+	if s.OnGameOver != nil {
+		s.OnGameOver()
+	}
 
 	return true
 }
@@ -382,7 +389,7 @@ func (s *Session) scheduleTimer(ar *Arena, unitID ds.ID) {
 	if ar.DisableTurnTimer {
 		return
 	}
-	
+
 	s.cancelTimer(ar.ID)
 	t := time.AfterFunc(TurnTimeSeconds*time.Second, func() {
 		if ar.ActiveUnitID != unitID {
