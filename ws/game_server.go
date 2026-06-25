@@ -2,6 +2,8 @@
 package ws
 
 import (
+	"encoding/json"
+	"errors"
 	"sync"
 
 	game "github.com/goplease-game/server"
@@ -75,6 +77,15 @@ func (gs *GameServer) onMessage(c *Client, msg api.InMessage) {
 		gs.matchmaker.Cancel(c.PlayerID)
 		c.Send(api.OutMessage{Action: api.MatchCancelledAction})
 
+	case api.CreateFriendGameAction:
+		gs.createFriendGame(c)
+
+	case api.JoinFriendGameAction:
+		gs.joinFriendGame(c, msg.Data)
+
+	case api.CancelFriendRoomAction:
+		gs.matchmaker.CancelFriendRoom(c.PlayerID)
+
 	default:
 		session := gs.sessionByPlayerID(c.PlayerID)
 		if session == nil {
@@ -143,8 +154,37 @@ func (gs *GameServer) sessionByPlayerID(playerID ds.ID) *game.Session {
 	if !ok {
 		return nil
 	}
-	
+
 	return v.(*game.Session)
+}
+
+// createFriendGame creates a friend room and returns the join code to the client.
+func (gs *GameServer) createFriendGame(c *Client) {
+	code := gs.matchmaker.CreateFriendRoom(c.PlayerID, gs.notifyMatchFound)
+	c.Send(api.OutMessage{
+		Action: api.FriendRoomCreatedAction,
+		Data:   FriendRoomCreatedResponse{JoinCode: code},
+	})
+}
+
+// joinFriendGame finds the room by code and starts the game for both players.
+func (gs *GameServer) joinFriendGame(c *Client, data json.RawMessage) {
+	var req JoinFriendGameRequest
+	err := json.Unmarshal(data, &req)
+	if err != nil {
+		c.Send(errMsg("invalid request"))
+		return
+	}
+
+	err = gs.matchmaker.JoinFriendRoom(req.JoinCode, c.PlayerID, gs.notifyMatchFound)
+	switch {
+	case errors.Is(err, match.ErrFriendRoomNotFound):
+		c.Send(api.OutMessage{Action: api.FriendRoomNotFound})
+	case errors.Is(err, match.ErrFriendRoomExpired):
+		c.Send(api.OutMessage{Action: api.FriendRoomExpiredAction})
+	case err != nil:
+		c.Send(errMsg(err.Error()))
+	}
 }
 
 // errMsg builds a standard error OutMessage.
@@ -165,4 +205,14 @@ type DisconnectResponse struct {
 // ErrorResponse holds a standardized error payload.
 type ErrorResponse struct {
 	Message string `json:"message"`
+}
+
+// FriendRoomCreatedResponse is sent after successfully creating a friend room.
+type FriendRoomCreatedResponse struct {
+	JoinCode string `json:"join_code"`
+}
+
+// JoinFriendGameRequest is sent by the client to join a friend room.
+type JoinFriendGameRequest struct {
+	JoinCode string `json:"join_code"`
 }
