@@ -280,6 +280,8 @@ func (a *Arena) MoveUnit(unitID ds.ID, to HexCoord, playerID ds.ID) (sts ApplySt
 	}
 
 	u.CurrentMP -= dist
+
+	sts.ToSelf(ApplyState{SetMP: new(u.CurrentMP), ToUnitID: unitID})
 	sts.With(a.relocateUnit(u, to))
 
 	return sts, nil
