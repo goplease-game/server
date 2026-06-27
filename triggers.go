@@ -98,6 +98,9 @@ func (r *TriggerRegistry) DamageDealt(a *Arena, from, to *Unit) (st ApplyStates)
 // TurnStarted resets round-specific variables and triggers all registered start-of-turn event handlers.
 func (r *TriggerRegistry) TurnStarted(a *Arena, u *Unit) (state ApplyStates) {
 	u.PhantomAPUsedThisTurn = 0
+	u.CurrentMP = u.BaseMP
+
+	state.ToSelf(ApplyState{SetMP: new(u.CurrentMP), ToUnitID: u.ID})
 
 	for _, handler := range r.onTurnStart {
 		state.With(handler(a, u))
