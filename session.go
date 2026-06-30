@@ -3,9 +3,12 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
+	"github.com/goplease-game/server/ability"
+	"github.com/goplease-game/server/ability/status"
 	"github.com/goplease-game/server/api"
 	"github.com/goplease-game/server/ds"
 )
@@ -22,6 +25,8 @@ type Session struct {
 	Arena      *Arena
 	P1Events   chan api.OutMessage
 	P2Events   chan api.OutMessage
+	unitCache  map[ds.ID]*Unit
+	Log        *Log
 	timers     map[ds.ID]*time.Timer
 	OnGameOver func()
 }
@@ -45,10 +50,12 @@ func NewSessionFromSnapshot(arena *Arena) *Session {
 	}
 
 	return &Session{
-		Arena:    arena,
-		P1Events: make(chan api.OutMessage, 128),
-		P2Events: make(chan api.OutMessage, 128),
-		timers:   make(map[ds.ID]*time.Timer),
+		Arena:     arena,
+		P1Events:  make(chan api.OutMessage, 128),
+		P2Events:  make(chan api.OutMessage, 128),
+		Log:       NewGameLog(),
+		unitCache: map[ds.ID]*Unit{},
+		timers:    make(map[ds.ID]*time.Timer),
 	}
 }
 
@@ -89,6 +96,8 @@ func (s *Session) Handle(playerID ds.ID, action api.Action, data json.RawMessage
 	default:
 		s.sendErr(playerID, "unknown action: "+string(action))
 	}
+
+	s.flushGameLog()
 }
 
 // handleReadyToPlay marks the player ready and starts the game loop
@@ -100,6 +109,10 @@ func (s *Session) handleReadyToPlay(playerID ds.ID) {
 		return
 	}
 	log.Printf("[session] both ready, advancing game loop")
+
+	s.Log.LogSystem("Game started.")
+	s.Log.LogSystem(roundTag(s.Arena.CurrentRound))
+
 	s.advanceGameLoop()
 }
 
@@ -118,9 +131,17 @@ func (s *Session) handlePlaceUnit(playerID ds.ID, data json.RawMessage) {
 		return
 	}
 
+	s.unitCache[u.ID] = u
+
 	s.sendToOpponent(playerID, api.OutMessage{
 		Action: api.UnitPlacedAction,
 		Data:   PlaceUnitPayload{Coord: req.Coord, Unit: u},
+	})
+
+	s.Log.LogAction(LogAction{
+		Kind:  LogActionPlace,
+		Actor: u,
+		Coord: &req.Coord,
 	})
 
 	s.advanceGameLoop()
@@ -135,6 +156,13 @@ func (s *Session) handleUnitMoved(playerID ds.ID, data json.RawMessage) {
 		return
 	}
 
+	u := s.Arena.unitByID(req.UnitID)
+	if u == nil {
+		err = ErrUnitNotFound
+		s.sendErr(playerID, err.Error())
+		return
+	}
+
 	states, err := s.Arena.MoveUnit(req.UnitID, req.Coord, playerID)
 	if err != nil {
 		s.sendErr(playerID, err.Error())
@@ -146,12 +174,29 @@ func (s *Session) handleUnitMoved(playerID ds.ID, data json.RawMessage) {
 		Data:   UnitMovedPayload{UnitID: req.UnitID, Coord: req.Coord},
 	})
 
+	s.Log.LogAction(LogAction{
+		Kind:  LogActionMove,
+		Actor: u,
+		Coord: &req.Coord,
+	})
+
 	s.broadcastStates(playerID, states)
 }
 
 // handleEndTurn ends the current unit's turn and advances the game loop.
 func (s *Session) handleEndTurn(playerID ds.ID) {
 	s.cancelTimer(s.Arena.ID)
+
+	u := s.Arena.unitByID(s.Arena.ActiveUnitID)
+	if u == nil {
+		err := ErrNoActingUnit
+		s.sendErr(playerID, err.Error())
+		return
+	}
+	s.Log.LogAction(LogAction{
+		Kind:  LogActionEndTurn,
+		Actor: u,
+	})
 
 	states, err := s.Arena.EndTurn(playerID)
 	if err != nil {
@@ -183,6 +228,28 @@ func (s *Session) handleUseAbility(playerID ds.ID, data json.RawMessage) {
 		return
 	}
 
+	u := s.Arena.unitByID(req.UnitID)
+	if u == nil {
+		err = ErrUnitNotFound
+		s.sendErr(playerID, err.Error())
+		return
+	}
+
+	action := LogAction{
+		Kind:      LogActionAbility,
+		Actor:     u,
+		AbilityID: req.AbilityID,
+		Coord:     req.Target,
+	}
+	if req.Target != nil {
+		// should ignore ShadowStep here, because unit moves to selected cell
+		// so it becomes: Silver used ShadowStep on Silver
+		if target := s.Arena.UnitAt(*req.Target); target != nil && req.AbilityID != ability.ShadowStep {
+			action.Target = target
+		}
+	}
+	s.Log.LogAction(action)
+
 	if s.checkAndHandleGameOver() {
 		return
 	}
@@ -194,6 +261,19 @@ func (s *Session) handleUseAbility(playerID ds.ID, data json.RawMessage) {
 func (s *Session) handleSurrender(playerID ds.ID) {
 	s.send(playerID, api.OutMessage{Action: api.YouLoseAction})
 	s.sendToOpponent(playerID, api.OutMessage{Action: api.OppSurrenderedAction})
+
+	u := s.Arena.ActingUnit()
+	if u == nil {
+		err := ErrNoActingUnit
+		s.sendErr(playerID, err.Error())
+		return
+	}
+
+	s.Log.LogAction(LogAction{
+		Kind:  LogActionSurrender,
+		Actor: u,
+	})
+
 	s.Arena.Phase = GameOverPhase
 	s.cancelTimer(s.Arena.ID)
 	if s.OnGameOver != nil {
@@ -230,6 +310,10 @@ func (s *Session) advancePlayPhase() {
 	s.broadcast(api.OutMessage{
 		Action: api.ActiveUnitChangedAction,
 		Data:   ActiveUnitChangedPayload{UnitID: activeUnit.ID},
+	})
+	s.Log.LogAction(LogAction{
+		Kind:  LogActionStartTurn,
+		Actor: activeUnit,
 	})
 
 	owner, ownerIdx := s.Arena.PlayerByUnitID(activeUnit.ID)
@@ -288,6 +372,8 @@ func (s *Session) startNewRound() {
 	ar.CurrentRound++
 	ar.Phase = PlayPhase
 
+	s.Log.LogSystem(roundTag(s.Arena.CurrentRound))
+
 	for _, u := range ar.UnitsQueue {
 		u.CurrentAP = u.BaseAP
 		u.CurrentMP = u.BaseMP
@@ -324,6 +410,8 @@ func (s *Session) checkAndHandleGameOver() bool {
 
 	loser := s.Arena.Players[loserIdx]
 	winner := s.Arena.Players[1-loserIdx]
+
+	s.Log.LogSystem(`%s wins`, playerTag(winner))
 
 	s.send(loser.ID, api.OutMessage{Action: api.YouLoseAction})
 	s.send(winner.ID, api.OutMessage{Action: api.YouWinAction})
@@ -363,8 +451,11 @@ func (s *Session) broadcast(msg api.OutMessage) {
 	}
 }
 
-// broadcastStates routes ApplyStates to Self, Opponent, and Global channels.
+// broadcastStates routes ApplyStates to Self, Opponent, and Global channels,
+// and logs any loggable effects from the states.
 func (s *Session) broadcastStates(playerID ds.ID, states ApplyStates) {
+	s.logStates(states) // log before sending so flush picks them up together
+
 	if len(states.Global) > 0 {
 		s.broadcast(api.OutMessage{Action: api.ApplyStateAction, Data: states.Global})
 	}
@@ -378,6 +469,7 @@ func (s *Session) broadcastStates(playerID ds.ID, states ApplyStates) {
 
 // sendErr sends an error message to the given player.
 func (s *Session) sendErr(playerID ds.ID, msg string) {
+	s.Log.LogError(playerID, msg)
 	s.send(playerID, api.OutMessage{
 		Action: api.ErrorAction,
 		Data:   map[string]string{"message": msg},
@@ -412,6 +504,87 @@ func (s *Session) cancelTimer(arenaID ds.ID) {
 	if t, ok := s.timers[arenaID]; ok {
 		t.Stop()
 		delete(s.timers, arenaID)
+	}
+}
+
+// flushGameLog drains all pending log messages and delivers each to the
+// appropriate player(s). Call at the end of every Handle case.
+func (s *Session) flushGameLog() {
+	for {
+		select {
+		case msg := <-s.Log.Out:
+			out := api.OutMessage{Action: api.GameLogAction, Data: msg}
+			if msg.Recipient != ds.NilID {
+				s.send(msg.Recipient, out)
+			} else {
+				s.broadcast(out)
+			}
+		default:
+			return
+		}
+	}
+}
+
+func (s *Session) logStates(states ApplyStates) {
+	all := append(append(states.Global, states.Self...), states.Opponent...)
+	for _, st := range all {
+		s.logState(st)
+	}
+}
+
+func (s *Session) logState(st ApplyState) {
+	if st.ToUnitID.IsNil() {
+		return
+	}
+	unit := unitTag(s.unitCache[st.ToUnitID])
+
+	if st.ChangeHP != nil {
+		if *st.ChangeHP < 0 {
+			s.Log.LogEffect(fmt.Sprintf("%s took <damage>%d</damage> damage", unit, -*st.ChangeHP))
+		} else {
+			s.Log.LogEffect(fmt.Sprintf("%s healed <hp>+%d</hp>", unit, *st.ChangeHP))
+		}
+	}
+	if st.ChangeShield != nil {
+		if *st.ChangeShield > 0 {
+			s.Log.LogEffect(fmt.Sprintf("%s gained <shield>+%d</shield> shield", unit, *st.ChangeShield))
+		} else if *st.ChangeShield < 0 {
+			s.Log.LogEffect(fmt.Sprintf("%s lost <damage>%d</damage> shield", unit, -*st.ChangeShield))
+		}
+	}
+	if st.AddStatus != nil {
+		name := status.ByType(*st.AddStatus).Name
+		s.Log.LogEffect(fmt.Sprintf("%s received status <ability>%s</ability>", unit, name))
+	}
+	if st.RemoveStatus != nil {
+		name := status.ByType(*st.RemoveStatus).Name
+		s.Log.LogEffect(fmt.Sprintf("%s lost status <ability>%s</ability>", unit, name))
+	}
+	if st.ChangeAP != nil {
+		s.Log.LogEffect(fmt.Sprintf("%s received <ap>%d</ap> AP", unit, *st.ChangeAP))
+	}
+	if st.IsDead {
+		s.Log.LogEffect(unit + " died")
+	}
+	if st.UseAbility != nil {
+		ab := ability.ByID(st.UseAbility.AbilityID)
+		unitID := st.UseAbility.UnitID
+		unit := unitTag(s.unitCache[unitID])
+
+		if ab.IsPassive { // active abilities will be logged by Handler
+			name := fmt.Sprintf("<ability>%s</ability>", ab.Name)
+			if st.UseAbility.Target != nil {
+				target := s.Arena.UnitAt(*st.UseAbility.Target)
+				if target != nil {
+					targetTag := unitTag(target)
+					s.Log.LogEffect(fmt.Sprintf("%s triggered %s on %s", unit, name, targetTag))
+				} else {
+					s.Log.LogEffect(fmt.Sprintf("%s triggered %s at %s", unit, name, st.UseAbility.Target))
+				}
+			} else {
+				s.Log.LogEffect(fmt.Sprintf("%s triggered %s", unit, name))
+			}
+		}
 	}
 }
 

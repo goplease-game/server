@@ -102,13 +102,13 @@ func PlayerName() string {
 func (b *Bot) handle(msg api.InMessage) {
 	time.Sleep(replyDelay)
 
-	if len(msg.Data) > 0 {
-		fmt.Printf("[BOT] %s: %s\n", msg.Action, string(msg.Data))
-	}
-
 	switch msg.Action {
 	case api.ErrorAction:
 		log.Printf("[bot] server error: %s", msg.Data)
+
+		// simply end turn to not block game-loop
+		// TODO add tracer to investigate errors
+		b.reply(api.EndTurnAction, nil)
 
 	case api.NewGameAction:
 		b.handleNewGame(msg.Data)
@@ -141,6 +141,8 @@ func (b *Bot) handle(msg api.InMessage) {
 		b.handleOppDisconnected()
 	case api.ActiveUnitChangedAction:
 		// active unit is only for visuals now
+	case api.GameLogAction:
+		// ignore
 
 	default:
 		log.Printf("[bot] unhandled action: %s", msg.Action)

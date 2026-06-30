@@ -206,10 +206,10 @@ var impatienceSH = &statusHandler{
 // hamstrungSH zeroes the unit's move points while active and restores
 // them to base on removal.
 var hamstrungSH = &statusHandler{
-	onTurnStart: func(_ *Arena, u *Unit, st status.Value) (state ApplyStates) {
+	onTurnStart: func(_ *Arena, u *Unit, _ status.Value) (state ApplyStates) {
 		u.CurrentMP = 0
 		state.ToAll(ApplyState{
-			SetMP:    new(st.Value),
+			SetMP:    new(u.CurrentMP),
 			ToUnitID: u.ID,
 		})
 		return
