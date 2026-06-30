@@ -297,7 +297,7 @@ func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 		target.BaseHP += ab.Effect.AddHP
 
 		st.ToAll(ApplyState{UseAbility: new(UseAbilityPayload{
-			UnitID:    target.ID,
+			UnitID:    u.ID,
 			AbilityID: id,
 			Target:    target.Pos,
 		}), ToUnitID: target.ID})

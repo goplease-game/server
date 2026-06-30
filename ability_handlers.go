@@ -6,7 +6,7 @@ import (
 	"github.com/goplease-game/server/ability/status"
 )
 
-// abilityHandlers maps unique ability identifiers to their corresponding execution logic functions.
+// abilityHandlers maps ability identifiers to their execution functions.
 var abilityHandlers = map[ability.ID]func(a *Arena, e abilityUsedEvent) (ApplyStates, error){
 	ability.BasicMeleeAttack: basicMeleeAttackHandler,
 	ability.BasicRangeAttack: basicRangeAttackHandler,
