@@ -4,6 +4,7 @@ import (
 	"github.com/goplease-game/server"
 	"github.com/goplease-game/server/ability"
 	"github.com/goplease-game/server/ability/status"
+	"github.com/goplease-game/server/ds"
 )
 
 type simAction struct {
@@ -85,19 +86,21 @@ func countAlliesInRadius(b *Bot, u *game.Unit, center game.HexCoord, radius int)
 }
 
 // priorityTarget returns the current priority target (PT) for the given unit.
-// Account for Provoked status first, then Hunter's Mark, and falls back to the closest lowest-HP enemy.
+// Accounts for Provoked status using metadata, then Hunter's Mark,
+// and falls back to the closest lowest-HP enemy.
 func (b *Bot) priorityTarget(u *game.Unit) *game.Unit {
 	enemies := b.enemies(u)
 	if len(enemies) == 0 {
 		return nil
 	}
 
-	// 1. Absolute Priority: If provoked, must target the provoker.
-	if _, isProvoked := u.Statuses[status.Provoked]; isProvoked {
-		// Looking for the enemy tank that has the Provoking status.
-		for _, e := range enemies {
-			if _, isProvoker := e.Statuses[status.Provoking]; isProvoker {
-				return e
+	// 1. Absolute Priority: If provoked, force targeting the specific provoker.
+	if provokedStatus, isProvoked := u.Statuses[status.Provoked]; isProvoked {
+		if provokerID, ok := provokedStatus.Meta["provoker"].(ds.ID); ok {
+			provoker := b.unitByID(provokerID)
+			// Ensure the provoker exists and is still in the active queue (alive).
+			if provoker != nil {
+				return provoker
 			}
 		}
 	}
