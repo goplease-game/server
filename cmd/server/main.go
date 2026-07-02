@@ -3,7 +3,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	game "github.com/goplease-game/server"
 	"github.com/goplease-game/server/config"
 	"github.com/goplease-game/server/ws"
 )
@@ -37,6 +40,15 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/play/", hub.ServeWS)
+	mux.HandleFunc("/api/version/", func(w http.ResponseWriter, _ *http.Request) {
+		err := json.NewEncoder(w).Encode(game.Version{
+			Commit:    game.Commit,
+			BuildDate: game.BuildDate,
+		})
+		if err != nil {
+			fmt.Println(err)
+		}
+	})
 
 	addr := net.JoinHostPort(config.Host, config.Port)
 	server := &http.Server{
