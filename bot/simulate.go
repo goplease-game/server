@@ -17,9 +17,15 @@ type useAbilityAction struct {
 	target    *game.HexCoord
 }
 
+// simulateUnitTurn evaluates and returns the best action for the active unit.
+// It prioritizes a global lethal check before evaluating class-specific scenarios.
 func (b *Bot) simulateUnitTurn(u *game.Unit) *simAction {
 	if u.CurrentAP < 1 {
 		return nil
+	}
+
+	if lethalAct := b.scenarioTryExecuteTarget(u); lethalAct != nil {
+		return lethalAct
 	}
 
 	scenarios, ok := simScenariosByUnit[u.TemplateID]
@@ -33,12 +39,44 @@ func (b *Bot) simulateUnitTurn(u *game.Unit) *simAction {
 		}
 	}
 
-	// Default: attack or move toward priority target
+	// Default fallbacks if no specific scenario triggers:
 	if act := b.scenarioAttackPriorityTarget(u); act != nil {
 		return act
 	}
 
 	return b.scenarioMoveTowardsPriorityTarget(u)
+}
+
+// scenarioTryExecuteTarget scans all ready abilities of unit `u` against its priority target.
+// If it finds a position from which an ability deals lethal damage, it immediately triggers that action.
+func (b *Bot) scenarioTryExecuteTarget(u *game.Unit) *simAction {
+	target := b.priorityTarget(u)
+	if target == nil || !target.Alive() {
+		return nil
+	}
+
+	for _, abID := range u.Abilities {
+		if !u.AbilityReady(abID) {
+			continue
+		}
+
+		ab := ability.ByID(abID)
+		if ab.ID == "" || ab.IsPassive {
+			continue
+		}
+
+		// Calculate if the expected damage is enough to eliminate the target.
+		expectedDamage := b.estimateAbilityDamage(u, abID)
+		if target.CurrentHP <= expectedDamage {
+			// Check if we can find a valid pathfinding position to execute this ability.
+			bestPos, found := b.findAttackPosition(u, target, ab.Range)
+			if found {
+				return b.simulateMoveAndUseAbility(u, bestPos, abID, target.PosVal())
+			}
+		}
+	}
+
+	return nil
 }
 
 // findBestPositionForAOE finds the cell reachable by u (within MovePoints)

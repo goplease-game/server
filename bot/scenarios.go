@@ -165,42 +165,24 @@ func scenarioBasFortify(b *Bot, u *game.Unit) *simAction {
 	return b.simulateMoveAndUseAbility(u, bestPos, ability.Fortify, bestPos)
 }
 
-// scenarioBasShieldBash handles Bas's tactical choice between stunning or executing an enemy.
-// It prioritizes lethal execution using basic attacks over wasting defensive cooldowns,
-// but triggers Shield Bash if it secures a kill or neutralizes high-value targets.
+// scenarioBasShieldBash handles Bas's tactical choice to lock down threats.
 func scenarioBasShieldBash(b *Bot, u *game.Unit) *simAction {
+	if !u.AbilityReady(ability.ShieldBash) {
+		return nil
+	}
+
 	target := b.priorityTarget(u)
 	if target == nil || !target.Alive() {
 		return nil
 	}
 
 	bashRange := ability.ByID(ability.ShieldBash).Range
-	meleeRange := ability.ByID(ability.BasicMeleeAttack).Range
-
-	// 1. Lethal Check (Basic Attack): If a normal strike kills the target, save the Shield Bash cooldown.
-	if u.AbilityReady(ability.BasicMeleeAttack) && u.PosVal().Distance(target.PosVal()) <= meleeRange {
-		basicDmg := b.estimateAbilityDamage(u, ability.BasicMeleeAttack)
-		if target.CurrentHP <= basicDmg {
-			return b.simulateUseAbility(u, ability.BasicMeleeAttack, target.PosVal())
-		}
-	}
-
-	// 2. Lethal Check (Shield Bash): Check if using the cooldown secures an immediate elimination.
-	if !u.AbilityReady(ability.ShieldBash) {
-		return nil
-	}
-
 	bestPos, found := b.findAttackPosition(u, target, bashRange)
 	if !found {
 		return nil
 	}
 
-	bashDmg := b.estimateAbilityDamage(u, ability.ShieldBash)
-	if target.CurrentHP <= bashDmg {
-		return b.simulateMoveAndUseAbility(u, bestPos, ability.ShieldBash, target.PosVal())
-	}
-
-	// 3. Crowd Control Check: Use Shield Bash to lock down high-threat targets (e.g., Silver or Grit).
+	// Apply Shield Bash to lock down high-threat targets since they cannot be executed this turn.
 	if target.TemplateID == SilverID || target.TemplateID == GritID {
 		return b.simulateMoveAndUseAbility(u, bestPos, ability.ShieldBash, target.PosVal())
 	}
