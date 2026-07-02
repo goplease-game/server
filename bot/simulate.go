@@ -4,6 +4,7 @@ import (
 	"github.com/goplease-game/server"
 	"github.com/goplease-game/server/ability"
 	"github.com/goplease-game/server/ability/status"
+	"github.com/goplease-game/server/ds"
 )
 
 type simAction struct {
@@ -16,9 +17,15 @@ type useAbilityAction struct {
 	target    *game.HexCoord
 }
 
+// simulateUnitTurn evaluates and returns the best action for the active unit.
+// It prioritizes a global lethal check before evaluating class-specific scenarios.
 func (b *Bot) simulateUnitTurn(u *game.Unit) *simAction {
 	if u.CurrentAP < 1 {
 		return nil
+	}
+
+	if lethalAct := b.scenarioTryExecuteTarget(u); lethalAct != nil {
+		return lethalAct
 	}
 
 	scenarios, ok := simScenariosByUnit[u.TemplateID]
@@ -32,12 +39,44 @@ func (b *Bot) simulateUnitTurn(u *game.Unit) *simAction {
 		}
 	}
 
-	// Default: attack or move toward priority target
+	// Default fallbacks if no specific scenario triggers:
 	if act := b.scenarioAttackPriorityTarget(u); act != nil {
 		return act
 	}
 
 	return b.scenarioMoveTowardsPriorityTarget(u)
+}
+
+// scenarioTryExecuteTarget scans all ready abilities of unit `u` against its priority target.
+// If it finds a position from which an ability deals lethal damage, it immediately triggers that action.
+func (b *Bot) scenarioTryExecuteTarget(u *game.Unit) *simAction {
+	target := b.priorityTarget(u)
+	if target == nil || !target.Alive() {
+		return nil
+	}
+
+	for _, abID := range u.Abilities {
+		if !u.AbilityReady(abID) {
+			continue
+		}
+
+		ab := ability.ByID(abID)
+		if ab.ID == "" || ab.IsPassive {
+			continue
+		}
+
+		// Calculate if the expected damage is enough to eliminate the target.
+		expectedDamage := b.estimateAbilityDamage(u, abID)
+		if target.CurrentHP <= expectedDamage {
+			// Check if we can find a valid pathfinding position to execute this ability.
+			bestPos, found := b.findAttackPosition(u, target, ab.Range)
+			if found {
+				return b.simulateMoveAndUseAbility(u, bestPos, abID, target.PosVal())
+			}
+		}
+	}
+
+	return nil
 }
 
 // findBestPositionForAOE finds the cell reachable by u (within MovePoints)
@@ -84,23 +123,36 @@ func countAlliesInRadius(b *Bot, u *game.Unit, center game.HexCoord, radius int)
 	return count
 }
 
-// priorityTarget returns the current priority target (PT) for the given unit.
-// Selects enemies with the HuntersMark status first. If none are marked,
-// chooses the closest enemy, breaking ties by lowest HP.
+// priorityTarget returns the current priority target for the given unit.
+// It prioritizes specific provokers extracted from Meta, then targets with Hunter's Mark,
+// and falls back to the closest enemy with the lowest health pool.
 func (b *Bot) priorityTarget(u *game.Unit) *game.Unit {
 	enemies := b.enemies(u)
 	if len(enemies) == 0 {
 		return nil
 	}
 
-	// 1. Absolute priority: Find any enemy with Hunter's Mark
+	// 1. Strict Priority: If the unit is Provoked, it must target its specific provoker.
+	if provokedStatus, isProvoked := u.Statuses[status.Provoked]; isProvoked {
+		if provokedStatus.Meta != nil {
+			if provokerID, ok := provokedStatus.Meta["provoker"].(ds.ID); ok {
+				provoker := b.unitByID(provokerID)
+				// Verify the provoker exists and is alive before committing.
+				if provoker != nil && provoker.Alive() {
+					return provoker
+				}
+			}
+		}
+	}
+
+	// 2. High Priority: Focus down enemies affected by Hunter's Mark.
 	for _, e := range enemies {
 		if _, hasMark := e.Statuses[status.Marked]; hasMark {
 			return e
 		}
 	}
 
-	// 2. Default fallback: Closest with lowest HP
+	// 3. Fallback Priority: Target the closest enemy, breaking ties with lowest current HP.
 	var best *game.Unit
 	for _, e := range enemies {
 		if best == nil {
@@ -300,25 +352,32 @@ func canReachFrom(from game.HexCoord, target *game.Unit, abilityRange int) bool 
 	return from.Distance(target.PosVal()) <= abilityRange
 }
 
-// simulateMoveTowards moves u one step in the direction of targetPos,
-// choosing the reachable cell closest to the target.
+// simulateMoveTowards moves unit `u` along a valid path toward `targetPos`.
+// It leverages game.ReachableCells to fully avoid walls and occupied hexes.
 func (b *Bot) simulateMoveTowards(u *game.Unit, targetPos game.HexCoord) *simAction {
-	reachable := b.state.board.Cells.InRange(u.PosVal(), u.CurrentMP)
+	// Gather all hexes reachable within the unit's remaining Movement Points.
+	reachable := game.ReachableCells(u.PosVal(), u.CurrentMP, *b.state.board)
+	if len(reachable) == 0 {
+		return nil
+	}
 
 	bestPos := u.PosVal()
 	bestDist := u.PosVal().Distance(targetPos)
 
-	for _, cell := range reachable {
-		if cell.Unit != nil && cell.Unit.ID != u.ID {
+	for _, coord := range reachable {
+		// Never path through or end a turn on an occupied cell.
+		if cell := b.cellAt(coord); cell != nil && cell.Unit != nil {
 			continue
 		}
-		d := cell.Coord.Distance(targetPos)
+
+		d := coord.Distance(targetPos)
 		if d < bestDist {
 			bestDist = d
-			bestPos = cell.Coord
+			bestPos = coord
 		}
 	}
 
+	// If no progress can be made toward the target, stay stationary.
 	if bestPos == u.PosVal() {
 		return nil
 	}

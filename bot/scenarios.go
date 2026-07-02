@@ -165,31 +165,29 @@ func scenarioBasFortify(b *Bot, u *game.Unit) *simAction {
 	return b.simulateMoveAndUseAbility(u, bestPos, ability.Fortify, bestPos)
 }
 
-// scenarioBasShieldBash uses Shield Bash on any reachable enemy
-// when the priority target is out of range.
+// scenarioBasShieldBash handles Bas's tactical choice to lock down threats.
 func scenarioBasShieldBash(b *Bot, u *game.Unit) *simAction {
 	if !u.AbilityReady(ability.ShieldBash) {
 		return nil
 	}
 
 	target := b.priorityTarget(u)
-	if target != nil && b.canReach(u, target, ability.ByID(ability.BasicMeleeAttack).Range) {
-		// Priority target is reachable — prefer normal attack.
+	if target == nil || !target.Alive() {
 		return nil
 	}
 
-	shieldBashRange := ability.ByID(ability.ShieldBash).Range
-	enemy := findClosestReachableEnemy(b, u, shieldBashRange)
-	if enemy == nil {
+	bashRange := ability.ByID(ability.ShieldBash).Range
+	bestPos, found := b.findAttackPosition(u, target, bashRange)
+	if !found {
 		return nil
 	}
 
-	moveTo, targetPos, ok := findAbilityTarget(b, u, enemy, ability.ShieldBash)
-	if !ok {
-		return nil
+	// Apply Shield Bash to lock down high-threat targets since they cannot be executed this turn.
+	if target.TemplateID == SilverID || target.TemplateID == GritID {
+		return b.simulateMoveAndUseAbility(u, bestPos, ability.ShieldBash, target.PosVal())
 	}
 
-	return b.simulateMoveAndUseAbility(u, moveTo, ability.ShieldBash, targetPos)
+	return nil
 }
 
 // scenarioBasProvoke uses Provoke when the priority target is unreachable,

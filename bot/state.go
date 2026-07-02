@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 
 	game "github.com/goplease-game/server"
+	"github.com/goplease-game/server/ability"
 	"github.com/goplease-game/server/ability/status"
 	"github.com/goplease-game/server/ds"
 )
@@ -90,9 +91,11 @@ func (b *Bot) randomUnoccupiedSafeZonePos() (pos game.HexCoord, err error) {
 	return empty[rand.IntN(len(empty))], nil //nolint:gosec
 }
 
-func (b *Bot) unitByID(unitID ds.ID) *game.Unit {
+// unitByID looks up a unit in the current turn queue by its unique ID.
+// Returns nil if the unit is not found or no longer active.
+func (b *Bot) unitByID(id ds.ID) *game.Unit {
 	for _, u := range b.state.queue {
-		if u.ID == unitID {
+		if u.ID == id {
 			return u
 		}
 	}
@@ -127,35 +130,42 @@ func (b *Bot) killUnit(unitID ds.ID) {
 	}
 }
 
+// findAttackPosition finds the optimal reachable cell from which unit `u`
+// can attack the `target` unit within the specified `attackRange`.
 func (b *Bot) findAttackPosition(u *game.Unit, target *game.Unit, attackRange int) (game.HexCoord, bool) {
+	// If the target is already within attack range from the current position, stay put.
 	if u.PosVal().Distance(target.PosVal()) <= attackRange {
 		return u.PosVal(), true
 	}
 
+	// Retrieve all cells the unit can actually navigate to this turn.
+	walkable := game.ReachableCells(u.PosVal(), u.CurrentMP, *b.state.board)
+
+	// Include the current position as a valid stopping option.
+	walkable = append(walkable, u.PosVal())
+
 	bestDist := math.MaxInt
 	var bestPos game.HexCoord
+	found := false
 
-	for coord, cell := range b.state.board.Cells {
-		if cell.Unit != nil {
+	for _, coord := range walkable {
+		// Ensure we don't step onto a cell occupied by another unit (excluding ourselves).
+		if cell := b.cellAt(coord); cell != nil && cell.Unit != nil && cell.Unit.ID != u.ID {
 			continue
 		}
-		moveDist := u.PosVal().Distance(coord)
-		if moveDist > u.CurrentMP {
-			continue
-		}
-		if coord.Distance(target.PosVal()) > attackRange {
-			continue
-		}
-		if moveDist < bestDist {
-			bestDist = moveDist
-			bestPos = coord
+
+		// Check if the target is within the ability's range from this specific hex.
+		if coord.Distance(target.PosVal()) <= attackRange {
+			moveDist := u.PosVal().Distance(coord)
+			if moveDist < bestDist {
+				bestDist = moveDist
+				bestPos = coord
+				found = true
+			}
 		}
 	}
 
-	if bestDist == math.MaxInt {
-		return game.HexCoord{}, false
-	}
-	return bestPos, true
+	return bestPos, found
 }
 
 func (b *Bot) randomReachableCell(u *game.Unit) *game.HexCoord {
@@ -221,4 +231,27 @@ func (b *Bot) updateUnitStatusDuration(u *game.Unit, statusDur map[status.Type]i
 		sv.Duration = dur
 		u.Statuses[st] = sv
 	}
+}
+
+// estimateAbilityDamage returns the expected damage value for a given ability
+// executed by a specific unit, parsing either base stats or config structures.
+func (b *Bot) estimateAbilityDamage(u *game.Unit, abilityID ability.ID) int {
+	ab := ability.ByID(abilityID)
+	if ab.ID == "" {
+		return 0
+	}
+
+	if dmg := ab.Effect.DealDamage; dmg > 0 {
+		return dmg
+	}
+
+	if ab.IsBasicAttack() {
+		return u.CurrentAtk
+	}
+
+	if ab.DamageHint == ability.HintCurrentATK {
+		return u.CurrentAtk
+	}
+
+	return 0
 }
