@@ -158,7 +158,7 @@ var abilities = map[ID]Ability{
 	IdolihuSpin: {
 		Type:        Skill,
 		IsPassive:   false,
-		Name:        "IDOLIHU! Spin",
+		Name:        "Idolihu Spin",
 		Description: "Strikes all adjacent enemies in a single sweeping motion.",
 		Cooldown:    2,
 		TargetMode:  TargetEnemies,

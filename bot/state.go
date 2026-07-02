@@ -127,35 +127,43 @@ func (b *Bot) killUnit(unitID ds.ID) {
 	}
 }
 
+// findAttackPosition finds the optimal reachable cell from which unit `u`
+// can attack the `target` unit within the specified `attackRange`.
+// It strictly accounts for obstacles using pathfinding (ReachableCells).
 func (b *Bot) findAttackPosition(u *game.Unit, target *game.Unit, attackRange int) (game.HexCoord, bool) {
+	// If the target is already within attack range, stay put.
 	if u.PosVal().Distance(target.PosVal()) <= attackRange {
 		return u.PosVal(), true
 	}
 
+	// Get all cells the unit can actually walk to this turn (handles walls/units).
+	walkable := game.ReachableCells(u.PosVal(), u.CurrentMP, *b.state.board)
+
+	// Include the current position as a valid option.
+	walkable = append(walkable, u.PosVal())
+
 	bestDist := math.MaxInt
 	var bestPos game.HexCoord
+	found := false
 
-	for coord, cell := range b.state.board.Cells {
-		if cell.Unit != nil {
+	for _, coord := range walkable {
+		// Double check we don't step on another unit (excluding ourselves).
+		if cell := b.cellAt(coord); cell != nil && cell.Unit != nil && cell.Unit.ID != u.ID {
 			continue
 		}
-		moveDist := u.PosVal().Distance(coord)
-		if moveDist > u.CurrentMP {
-			continue
-		}
-		if coord.Distance(target.PosVal()) > attackRange {
-			continue
-		}
-		if moveDist < bestDist {
-			bestDist = moveDist
-			bestPos = coord
+
+		// Check if the target can be reached by the ability from this cell.
+		if coord.Distance(target.PosVal()) <= attackRange {
+			moveDist := u.PosVal().Distance(coord)
+			if moveDist < bestDist {
+				bestDist = moveDist
+				bestPos = coord
+				found = true
+			}
 		}
 	}
 
-	if bestDist == math.MaxInt {
-		return game.HexCoord{}, false
-	}
-	return bestPos, true
+	return bestPos, found
 }
 
 func (b *Bot) randomReachableCell(u *game.Unit) *game.HexCoord {

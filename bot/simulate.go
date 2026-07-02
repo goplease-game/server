@@ -85,22 +85,31 @@ func countAlliesInRadius(b *Bot, u *game.Unit, center game.HexCoord, radius int)
 }
 
 // priorityTarget returns the current priority target (PT) for the given unit.
-// Selects enemies with the HuntersMark status first. If none are marked,
-// chooses the closest enemy, breaking ties by lowest HP.
+// Account for Provoked status first, then Hunter's Mark, and falls back to the closest lowest-HP enemy.
 func (b *Bot) priorityTarget(u *game.Unit) *game.Unit {
 	enemies := b.enemies(u)
 	if len(enemies) == 0 {
 		return nil
 	}
 
-	// 1. Absolute priority: Find any enemy with Hunter's Mark
+	// 1. Absolute Priority: If provoked, must target the provoker.
+	if _, isProvoked := u.Statuses[status.Provoked]; isProvoked {
+		// Looking for the enemy tank that has the Provoking status.
+		for _, e := range enemies {
+			if _, isProvoker := e.Statuses[status.Provoking]; isProvoker {
+				return e
+			}
+		}
+	}
+
+	// 2. High Priority: Find any enemy with Hunter's Mark.
 	for _, e := range enemies {
 		if _, hasMark := e.Statuses[status.Marked]; hasMark {
 			return e
 		}
 	}
 
-	// 2. Default fallback: Closest with lowest HP
+	// 3. Default fallback: Closest with lowest HP.
 	var best *game.Unit
 	for _, e := range enemies {
 		if best == nil {
@@ -300,22 +309,28 @@ func canReachFrom(from game.HexCoord, target *game.Unit, abilityRange int) bool 
 	return from.Distance(target.PosVal()) <= abilityRange
 }
 
-// simulateMoveTowards moves u one step in the direction of targetPos,
-// choosing the reachable cell closest to the target.
+// simulateMoveTowards moves u along the path in the direction of targetPos,
+// utilizing pathfinding instead of a simple radius check to avoid walls and occupied cells.
 func (b *Bot) simulateMoveTowards(u *game.Unit, targetPos game.HexCoord) *simAction {
-	reachable := b.state.board.Cells.InRange(u.PosVal(), u.CurrentMP)
+	// Get actually reachable cells using the game's pathfinding logic.
+	reachable := game.ReachableCells(u.PosVal(), u.CurrentMP, *b.state.board)
+	if len(reachable) == 0 {
+		return nil
+	}
 
 	bestPos := u.PosVal()
 	bestDist := u.PosVal().Distance(targetPos)
 
-	for _, cell := range reachable {
-		if cell.Unit != nil && cell.Unit.ID != u.ID {
+	for _, coord := range reachable {
+		// Ensure we don't collide with another unit.
+		if cell := b.cellAt(coord); cell != nil && cell.Unit != nil {
 			continue
 		}
-		d := cell.Coord.Distance(targetPos)
+
+		d := coord.Distance(targetPos)
 		if d < bestDist {
 			bestDist = d
-			bestPos = cell.Coord
+			bestPos = coord
 		}
 	}
 
