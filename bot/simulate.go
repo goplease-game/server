@@ -85,34 +85,36 @@ func countAlliesInRadius(b *Bot, u *game.Unit, center game.HexCoord, radius int)
 	return count
 }
 
-// priorityTarget returns the current priority target (PT) for the given unit.
-// Accounts for Provoked status using metadata, then Hunter's Mark,
-// and falls back to the closest lowest-HP enemy.
+// priorityTarget returns the current priority target for the given unit.
+// It prioritizes specific provokers extracted from Meta, then targets with Hunter's Mark,
+// and falls back to the closest enemy with the lowest health pool.
 func (b *Bot) priorityTarget(u *game.Unit) *game.Unit {
 	enemies := b.enemies(u)
 	if len(enemies) == 0 {
 		return nil
 	}
 
-	// 1. Absolute Priority: If provoked, force targeting the specific provoker.
+	// 1. Strict Priority: If the unit is Provoked, it must target its specific provoker.
 	if provokedStatus, isProvoked := u.Statuses[status.Provoked]; isProvoked {
-		if provokerID, ok := provokedStatus.Meta["provoker"].(ds.ID); ok {
-			provoker := b.unitByID(provokerID)
-			// Ensure the provoker exists and is still in the active queue (alive).
-			if provoker != nil {
-				return provoker
+		if provokedStatus.Meta != nil {
+			if provokerID, ok := provokedStatus.Meta["provoker"].(ds.ID); ok {
+				provoker := b.unitByID(provokerID)
+				// Verify the provoker exists and is alive before committing.
+				if provoker != nil && provoker.Alive() {
+					return provoker
+				}
 			}
 		}
 	}
 
-	// 2. High Priority: Find any enemy with Hunter's Mark.
+	// 2. High Priority: Focus down enemies affected by Hunter's Mark.
 	for _, e := range enemies {
 		if _, hasMark := e.Statuses[status.Marked]; hasMark {
 			return e
 		}
 	}
 
-	// 3. Default fallback: Closest with lowest HP.
+	// 3. Fallback Priority: Target the closest enemy, breaking ties with lowest current HP.
 	var best *game.Unit
 	for _, e := range enemies {
 		if best == nil {
@@ -312,10 +314,10 @@ func canReachFrom(from game.HexCoord, target *game.Unit, abilityRange int) bool 
 	return from.Distance(target.PosVal()) <= abilityRange
 }
 
-// simulateMoveTowards moves u along the path in the direction of targetPos,
-// utilizing pathfinding instead of a simple radius check to avoid walls and occupied cells.
+// simulateMoveTowards moves unit `u` along a valid path toward `targetPos`.
+// It leverages game.ReachableCells to fully avoid walls and occupied hexes.
 func (b *Bot) simulateMoveTowards(u *game.Unit, targetPos game.HexCoord) *simAction {
-	// Get actually reachable cells using the game's pathfinding logic.
+	// Gather all hexes reachable within the unit's remaining Movement Points.
 	reachable := game.ReachableCells(u.PosVal(), u.CurrentMP, *b.state.board)
 	if len(reachable) == 0 {
 		return nil
@@ -325,7 +327,7 @@ func (b *Bot) simulateMoveTowards(u *game.Unit, targetPos game.HexCoord) *simAct
 	bestDist := u.PosVal().Distance(targetPos)
 
 	for _, coord := range reachable {
-		// Ensure we don't collide with another unit.
+		// Never path through or end a turn on an occupied cell.
 		if cell := b.cellAt(coord); cell != nil && cell.Unit != nil {
 			continue
 		}
@@ -337,6 +339,7 @@ func (b *Bot) simulateMoveTowards(u *game.Unit, targetPos game.HexCoord) *simAct
 		}
 	}
 
+	// If no progress can be made toward the target, stay stationary.
 	if bestPos == u.PosVal() {
 		return nil
 	}
