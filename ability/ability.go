@@ -49,6 +49,7 @@ const (
 	TargetEnemies        TargetMode = "enemies"
 	TargetEnemiesAndSelf TargetMode = "enemies_and_self"
 	TargetAny            TargetMode = "any"
+	TargetAnyAndSelf     TargetMode = "any_and_self"
 )
 
 // Ability defines the complete configuration, combat rules, and metadata of a game ability.

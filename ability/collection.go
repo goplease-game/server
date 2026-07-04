@@ -299,7 +299,7 @@ var abilities = map[ID]Ability{
 		Cooldown:    2,
 		Range:       2,
 		TargetMode:  TargetAllies,
-		Activation:  SelectAllyOrSelf,
+		Activation:  SelectAlly,
 		Effect:      Effect{ApplyStatus: status.TemporalAnchor},
 	},
 	Purge: {

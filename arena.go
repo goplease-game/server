@@ -32,6 +32,9 @@ var (
 	// ErrCannotTargetEnemy is returned when an ability cannot target enemy units.
 	ErrCannotTargetEnemy = errors.New("cannot target enemy")
 
+	// ErrCannotTargetSelf is returned when an ability cannot target self.
+	ErrCannotTargetSelf = errors.New("cannot target self")
+
 	// ErrMustTargetSelf is returned when an ability must target the caster itself.
 	ErrMustTargetSelf = errors.New("must target self")
 
@@ -696,6 +699,11 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 		return abilityErr(ab.ID, ErrTargetOutOfRange)
 	}
 
+	return a.validateAbilityTargetMode(caster, ab, targetAt)
+}
+
+// validateAbilityTargetMode checks the unit at targetAt against ab's TargetMode rules.
+func (a *Arena) validateAbilityTargetMode(caster *Unit, ab ability.Ability, targetAt *HexCoord) error {
 	target := a.UnitAt(*targetAt)
 
 	switch ab.TargetMode {
@@ -703,7 +711,7 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 		if target == nil {
 			return abilityErr(ab.ID, ErrNoUnitAtTarget)
 		}
-		if target.OwnerID == caster.OwnerID && ab.TargetMode == ability.TargetEnemies {
+		if target.OwnerID == caster.OwnerID {
 			return abilityErr(ab.ID, ErrCannotTargetAlly)
 		}
 
@@ -714,15 +722,21 @@ func (a *Arena) ValidateAbilityUse(caster *Unit, ab ability.Ability, targetAt *H
 		if target.OwnerID != caster.OwnerID {
 			return abilityErr(ab.ID, ErrCannotTargetEnemy)
 		}
+		if target.ID == caster.ID && ab.TargetMode == ability.TargetAllies {
+			return abilityErr(ab.ID, ErrCannotTargetSelf)
+		}
 
 	case ability.TargetSelf:
 		if target == nil || target.ID != caster.ID {
 			return abilityErr(ab.ID, ErrMustTargetSelf)
 		}
 
-	case ability.TargetAny:
+	case ability.TargetAny, ability.TargetAnyAndSelf:
 		if target == nil {
 			return abilityErr(ab.ID, ErrNoUnitAtTarget)
+		}
+		if target.ID == caster.ID && ab.TargetMode == ability.TargetAny {
+			return abilityErr(ab.ID, ErrCannotTargetSelf)
 		}
 	}
 
