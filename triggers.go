@@ -302,7 +302,7 @@ func useBottomlessVialAbility(a *Arena, _, target *Unit) (st ApplyStates) {
 			Target:    target.Pos,
 		}), ToUnitID: target.ID})
 		st.ToAll(ApplyState{SetBaseHP: new(target.BaseHP), ToUnitID: target.ID})
-		st.With(healUnit(target, ab.Effect.HealHP))
+		st.With(healUnit(a, target, ab.Effect.HealHP))
 
 		return // apply only once
 	}

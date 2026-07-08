@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/goplease-game/server/ability"
@@ -29,6 +30,8 @@ type Session struct {
 	Log        *Log
 	timers     map[ds.ID]*time.Timer
 	OnGameOver func()
+
+	mu sync.Mutex
 }
 
 // NewSession creates a Session for the given players and starts the
@@ -49,12 +52,28 @@ func NewSessionFromSnapshot(arena *Arena) *Session {
 		arena.CurrentRound = 1
 	}
 
+	// The arena may come with a prebuilt unit queue,
+	// so build the unit cache from it.
+	uCache := map[ds.ID]*Unit{}
+	if arena.UnitsQueue != nil {
+		for _, u := range arena.UnitsQueue {
+			if u == nil {
+				continue
+			}
+			uCache[u.ID] = u
+		}
+	}
+
+	if arena.Stats == nil {
+		arena.Stats = NewGameStats(time.Now())
+	}
+
 	return &Session{
 		Arena:     arena,
 		P1Events:  make(chan api.OutMessage, 128),
 		P2Events:  make(chan api.OutMessage, 128),
 		Log:       NewGameLog(),
-		unitCache: map[ds.ID]*Unit{},
+		unitCache: uCache,
 		timers:    make(map[ds.ID]*time.Timer),
 	}
 }
@@ -80,6 +99,9 @@ func (s *Session) Start() {
 
 // Handle processes an inbound action from the given player.
 func (s *Session) Handle(playerID ds.ID, action api.Action, data json.RawMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	switch action {
 	case api.ReadyToPlay:
 		s.handleReadyToPlay(playerID)
@@ -411,10 +433,12 @@ func (s *Session) checkAndHandleGameOver() bool {
 	loser := s.Arena.Players[loserIdx]
 	winner := s.Arena.Players[1-loserIdx]
 
+	s.Arena.Stats.Finalize(time.Now(), s.Arena.CurrentRound)
+
 	s.Log.LogSystem(`%s wins`, playerTag(winner))
 
-	s.send(loser.ID, api.OutMessage{Action: api.YouLoseAction})
-	s.send(winner.ID, api.OutMessage{Action: api.YouWinAction})
+	s.send(loser.ID, api.OutMessage{Action: api.YouLoseAction, Data: s.Arena.Stats})
+	s.send(winner.ID, api.OutMessage{Action: api.YouWinAction, Data: s.Arena.Stats})
 	s.Arena.Phase = GameOverPhase
 	s.cancelTimer(s.Arena.ID)
 	if s.OnGameOver != nil {
@@ -484,6 +508,9 @@ func (s *Session) scheduleTimer(ar *Arena, unitID ds.ID) {
 
 	s.cancelTimer(ar.ID)
 	t := time.AfterFunc(TurnTimeSeconds*time.Second, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
 		if ar.ActiveUnitID != unitID {
 			return
 		}

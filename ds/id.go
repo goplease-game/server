@@ -94,3 +94,22 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID(u)
 	return nil
 }
+
+// MarshalText implements encoding.TextMarshaler, used by encoding/json
+// when ID appears as a map key (e.g. map[ID]T).
+func (id ID) MarshalText() ([]byte, error) {
+	return uuid.UUID(id).MarshalText()
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler, used by encoding/json
+// when ID appears as a map key (e.g. map[ID]T).
+func (id *ID) UnmarshalText(text []byte) error {
+	var u uuid.UUID
+	err := u.UnmarshalText(text)
+	if err != nil {
+		return fmt.Errorf("ds.ID: unmarshal failed: %w", err)
+	}
+
+	*id = ID(u)
+	return nil
+}
