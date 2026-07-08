@@ -45,7 +45,7 @@ const (
 
 // LogAction holds the structured data of a player command.
 // It is stored in KindAction messages and consumed during replay.
-// ActorID is always set. AbilityID and Coord are optional depending on Kind.
+// Actor is always set. AbilityID and Coord are optional depending on Kind.
 type LogAction struct {
 	Kind      LogActionKind
 	Actor     *Unit

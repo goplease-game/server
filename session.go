@@ -281,18 +281,13 @@ func (s *Session) handleUseAbility(playerID ds.ID, data json.RawMessage) {
 
 // handleSurrender ends the match with the surrendering player losing.
 func (s *Session) handleSurrender(playerID ds.ID) {
-
 	u := s.Arena.ActingUnit()
-	if u == nil {
-		err := ErrNoActingUnit
-		s.sendErr(playerID, err.Error())
-		return
+	if u != nil {
+		s.Log.LogAction(LogAction{
+			Kind:  LogActionSurrender,
+			Actor: u,
+		})
 	}
-
-	s.Log.LogAction(LogAction{
-		Kind:  LogActionSurrender,
-		Actor: u,
-	})
 
 	s.Arena.Phase = GameOverPhase
 	s.cancelTimer(s.Arena.ID)
