@@ -34,6 +34,8 @@ linters:
     - mnd
     - goprintffuncname
     - forcetypeassert
+    - noinlineerr
+    - staticcheck
 
   exclusions:
     # Mode of the generated files analysis.

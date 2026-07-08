@@ -72,6 +72,7 @@ func fortifyHandler(a *Arena, e abilityUsedEvent) (sts ApplyStates, err error) {
 	val := e.Ab.Effect.AddShield
 	for _, u := range units {
 		u.CurrentShield += val
+		a.Stats.RecordShieldApplied(u.OwnerID, val)
 		sts.ToAll(
 			ApplyState{ChangeShield: new(val), ToUnitID: u.ID},
 			ApplyState{SetShield: new(u.CurrentShield), ToUnitID: u.ID},
@@ -209,7 +210,7 @@ func purifyHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) 
 		}
 	}
 
-	state.With(healUnit(target, e.Ab.Effect.HealHP))
+	state.With(healUnit(a, target, e.Ab.Effect.HealHP))
 	state.With(ApplyStatusToUnit(a, e.Ab.Effect.ApplyStatus, e.By, target))
 
 	return
@@ -219,9 +220,8 @@ func purifyHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) 
 func healHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	target := a.UnitAt(e.At)
 
-	return healUnit(target, e.Ab.Effect.HealHP), nil
+	return healUnit(a, target, e.Ab.Effect.HealHP), nil
 }
-
 // equalizeHandler sums the current health of nearby allies and redistributes it evenly across them.
 func equalizeHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err error) {
 	var sumHP int
@@ -350,24 +350,33 @@ func hamstringShotHandler(a *Arena, e abilityUsedEvent) (state ApplyStates, err 
 	return
 }
 
-// healUnit applies health points to a targeted unit up to their maximum base health constraint.
-func healUnit(u *Unit, val int) (state ApplyStates) {
-	if u.CurrentHP == u.BaseHP {
+// healUnit applies healing to a targeted unit up to their maximum base health,
+// recording both the applied amount and any overheal (wasted) portion in a.Stats.
+func healUnit(a *Arena, u *Unit, amount int) (state ApplyStates) {
+	if amount <= 0 {
 		return
 	}
 
-	u.CurrentHP += val
-	if u.CurrentHP > u.BaseHP {
-		val -= u.CurrentHP - u.BaseHP
-		u.CurrentHP = u.BaseHP
+	if u.CurrentHP == u.BaseHP {
+		a.Stats.RecordHealing(u.OwnerID, 0, amount)
+		return
 	}
 
-	if val == 0 {
+	applied := amount
+	if u.CurrentHP+applied > u.BaseHP {
+		applied = u.BaseHP - u.CurrentHP
+	}
+	wasted := amount - applied
+
+	u.CurrentHP += applied
+	a.Stats.RecordHealing(u.OwnerID, applied, wasted)
+
+	if applied == 0 {
 		return
 	}
 
 	state.ToAll(
-		ApplyState{ChangeHP: new(val), ToUnitID: u.ID},
+		ApplyState{ChangeHP: new(applied), ToUnitID: u.ID},
 		ApplyState{SetHP: new(u.CurrentHP), ToUnitID: u.ID},
 	)
 

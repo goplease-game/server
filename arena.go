@@ -3,11 +3,12 @@ package game
 import (
 	"errors"
 	"fmt"
-	"math/rand/v2"
-	"sync"
 	"github.com/goplease-game/server/ability"
 	"github.com/goplease-game/server/ability/status"
 	"github.com/goplease-game/server/ds"
+	"math/rand/v2"
+	"sync"
+	"time"
 )
 
 var (
@@ -106,9 +107,11 @@ type Arena struct {
 	Phase                  RoundPhase
 	UnitsPerPlacementPhase int
 
-	DisableGameOver bool
-	DisableBot bool
+	DisableGameOver  bool
+	DisableBot       bool
 	DisableTurnTimer bool
+
+	Stats *Stats
 }
 
 // NewArena initializes and returns a pointer to a new Arena instance linking two competitive players.
@@ -121,6 +124,7 @@ func NewArena(p1, p2 *Player) *Arena {
 		Phase:                  PlacementPhase,
 		Board:                  NewBoard(),
 		UnitsPerPlacementPhase: UnitsPerPlacementPhase,
+		Stats:                  NewGameStats(time.Now()),
 	}
 }
 
@@ -283,6 +287,7 @@ func (a *Arena) MoveUnit(unitID ds.ID, to HexCoord, playerID ds.ID) (sts ApplySt
 	}
 
 	u.CurrentMP -= dist
+	a.Stats.RecordMovement(playerID, dist)
 
 	sts.ToSelf(ApplyState{SetMP: new(u.CurrentMP), ToUnitID: unitID})
 	sts.With(a.relocateUnit(u, to))
@@ -294,7 +299,7 @@ func (a *Arena) MoveUnit(unitID ds.ID, to HexCoord, playerID ds.ID) (sts ApplySt
 func (a *Arena) EndTurn(playerID ds.ID) (state ApplyStates, err error) {
 	if a.ActiveUnitID.IsNil() {
 		if a.Players[a.ActivePlayer].ID != playerID {
-			err= ErrNotYourTurn
+			err = ErrNotYourTurn
 			return
 		}
 		return
@@ -442,6 +447,7 @@ func (a *Arena) UseAbility(req UseAbilityPayload, playerID ds.ID) (state ApplySt
 	})
 
 	u.SetCooldown(ab.ID, ab.Cooldown)
+	a.Stats.RecordAbilityUse(u.OwnerID, string(ab.ID))
 
 	return state, nil
 }
@@ -475,6 +481,7 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 			ApplyState{ChangeShield: new(-shieldRemoved), ToUnitID: target.ID},
 			ApplyState{SetShield: new(target.CurrentShield), ToUnitID: target.ID},
 		)
+		a.Stats.RecordShieldDestroyed(target.OwnerID, shieldRemoved)
 	}
 
 	// Shield fully absorbed the damage
@@ -482,8 +489,13 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 		return state
 	}
 
+	postShieldDamage := val
 	if target.CurrentHP < val {
 		val = target.CurrentHP
+	}
+
+	if source != nil {
+		a.Stats.RecordDamage(source.OwnerID, target.OwnerID, postShieldDamage, postShieldDamage-val)
 	}
 
 	target.CurrentHP -= val
@@ -497,6 +509,9 @@ func (a *Arena) DealDamageToUnit(source, target *Unit, val int) (state ApplyStat
 		state.With(triggers.SomebodyJustExpectedlyDied(a, target))
 
 		if target.IsDead {
+			if source != nil {
+				a.Stats.RecordKill(a.CurrentRound, source.ID, target.ID, source.Name, target.Name, source.OwnerID, target.OwnerID)
+			}
 			a.RemoveUnitFromQueue(target.ID)
 			state.ToAll(ApplyState{IsDead: true, ToUnitID: target.ID})
 
@@ -754,7 +769,10 @@ func (a *Arena) unitByID(unitID ds.ID) *Unit {
 	return nil
 }
 
-// advanceActiveUnit shifts the turn ownership pointer onto the next sequential unit index inside the initiative list.
+// advanceActiveUnit shifts the turn ownership pointer onto the next sequential unit index inside
+// the initiative list. If the current active unit is no longer present in the queue (e.g. it was
+// removed by some path other than RemoveUnitFromQueue's own reassignment), the active unit is
+// reset to nil rather than left pointing at a stale ID.
 func (a *Arena) advanceActiveUnit() {
 	for i, u := range a.UnitsQueue {
 		if u.ID == a.ActiveUnitID {
@@ -766,8 +784,9 @@ func (a *Arena) advanceActiveUnit() {
 			return
 		}
 	}
-}
 
+	a.ActiveUnitID = ds.NilID
+}
 // relocateUnit updates spatial matrix references and executes corresponding trigger registrations for movement.
 func (a *Arena) relocateUnit(u *Unit, to HexCoord) (sts ApplyStates) {
 	a.Board.Cells[u.PosVal()].Unit = nil
