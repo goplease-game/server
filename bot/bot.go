@@ -220,7 +220,6 @@ var richardAndPerfectFamily = []string{
 	"Richard No Eddies No Cry",
 	"Richard Ripperdoc Wannabe",
 	"Richard Fuss Roo Dad",
-	"Richard Sleepy Leon O",
 	"Richard Creeper Hugger",
 	"Richard Punches Trees",
 	"Richard Lost In Mineshaft",
