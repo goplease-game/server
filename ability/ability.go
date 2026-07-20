@@ -1,7 +1,7 @@
 // Package ability ...
 package ability
 
-import "github.com/goplease-game/server/ability/status"
+import "github.com/goplease-game/game-server/ability/status"
 
 // ID represents the unique identifier string for an ability.
 type ID string

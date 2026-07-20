@@ -1,7 +1,7 @@
 package game
 
 import (
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // Player represents a participant in a match, tracking their hand of

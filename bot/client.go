@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/goplease-game/server/api"
+	"github.com/goplease-game/game-server/api"
 	"github.com/gorilla/websocket"
 )
 

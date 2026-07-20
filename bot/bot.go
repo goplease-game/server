@@ -9,10 +9,10 @@ import (
 	"math/rand"
 	"time"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/api"
-	"github.com/goplease-game/server/config"
-	"github.com/goplease-game/server/ds"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/api"
+	"github.com/goplease-game/game-server/config"
+	"github.com/goplease-game/game-server/ds"
 )
 
 var (

@@ -1,4 +1,4 @@
-module github.com/goplease-game/server
+module github.com/goplease-game/game-server
 
 go 1.26
 

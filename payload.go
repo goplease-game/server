@@ -1,8 +1,8 @@
 package game
 
 import (
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // NewGamePayload is sent to the client when a new match starts, containing

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // MessageKind identifies the category of a log message.

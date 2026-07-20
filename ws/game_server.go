@@ -6,10 +6,10 @@ import (
 	"errors"
 	"sync"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/api"
-	"github.com/goplease-game/server/ds"
-	"github.com/goplease-game/server/match"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/api"
+	"github.com/goplease-game/game-server/ds"
+	"github.com/goplease-game/game-server/match"
 )
 
 // GameServer wires the WebSocket communication layer with the core game domain.

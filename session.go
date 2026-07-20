@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ability/status"
-	"github.com/goplease-game/server/api"
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ability/status"
+	"github.com/goplease-game/game-server/api"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // Event is an outbound message from a Session directed at a specific player.

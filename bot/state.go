@@ -6,10 +6,10 @@ import (
 	"math"
 	"math/rand/v2"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ability/status"
-	"github.com/goplease-game/server/ds"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ability/status"
+	"github.com/goplease-game/game-server/ds"
 )
 
 var (

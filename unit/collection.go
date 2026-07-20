@@ -2,7 +2,7 @@
 package unit
 
 import (
-	ab "github.com/goplease-game/server/ability"
+	ab "github.com/goplease-game/game-server/ability"
 )
 
 // DefaultTemplates is the default roster of unit templates available in the game.

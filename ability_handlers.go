@@ -2,8 +2,8 @@
 package game
 
 import (
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ability/status"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ability/status"
 )
 
 // abilityHandlers maps ability identifiers to their execution functions.

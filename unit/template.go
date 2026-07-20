@@ -1,7 +1,7 @@
 package unit
 
 import (
-	"github.com/goplease-game/server/ability"
+	"github.com/goplease-game/game-server/ability"
 )
 
 // Template defines the static base stats and ability set for a unit type,

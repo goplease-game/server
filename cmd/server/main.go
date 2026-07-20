@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/config"
-	"github.com/goplease-game/server/ws"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/config"
+	"github.com/goplease-game/game-server/ws"
 )
 
 func main() {

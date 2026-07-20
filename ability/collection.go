@@ -1,6 +1,6 @@
 package ability
 
-import "github.com/goplease-game/server/ability/status"
+import "github.com/goplease-game/game-server/ability/status"
 
 // Game ability identifiers used to distinguish unique combat skills and spells.
 const (

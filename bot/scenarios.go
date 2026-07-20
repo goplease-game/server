@@ -3,9 +3,9 @@ package bot
 import (
 	"math"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ability/status"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ability/status"
 )
 
 // IDs of unite templates.

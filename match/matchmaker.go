@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/bot"
-	"github.com/goplease-game/server/ds"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/bot"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // matchmakingTimeout is how long a player can wait in the queue before a bot is paired with them.

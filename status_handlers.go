@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/goplease-game/server/ability"
-	"github.com/goplease-game/server/ability/status"
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/ability"
+	"github.com/goplease-game/game-server/ability/status"
+	"github.com/goplease-game/game-server/ds"
 )
 
 var (

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/api"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/api"
 )
 
 func (b *Bot) handleNewGame(data json.RawMessage) {

@@ -33,7 +33,7 @@ jobs:
       - name: Build server
         run: |
           GOOS=linux GOARCH=amd64 go build \
-          -ldflags "-X 'github.com/goplease-game/server.Commit=${SHORT_SHA}' -X 'github.com/goplease-game/server.BuildDate=${BUILD_DATE}'" \
+          -ldflags "-X 'github.com/goplease-game/game-server.Commit=${SHORT_SHA}' -X 'github.com/goplease-game/game-server.BuildDate=${BUILD_DATE}'" \
           -o ./bin/server ./cmd/server/main.go
 
       - name: Upload files to droplet

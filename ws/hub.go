@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/goplease-game/server/api"
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/api"
+	"github.com/goplease-game/game-server/ds"
 	"github.com/gorilla/websocket"
 )
 

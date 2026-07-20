@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	game "github.com/goplease-game/server"
-	"github.com/goplease-game/server/api"
-	"github.com/goplease-game/server/ds"
+	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server/api"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // transport abstracts message delivery for the bot.

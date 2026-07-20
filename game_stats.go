@@ -3,7 +3,7 @@ package game
 import (
 	"time"
 
-	"github.com/goplease-game/server/ds"
+	"github.com/goplease-game/game-server/ds"
 )
 
 // Score weight constants. Tuned so that Kills dominate the score (a kill is a
