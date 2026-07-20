@@ -787,6 +787,7 @@ func (a *Arena) advanceActiveUnit() {
 
 	a.ActiveUnitID = ds.NilID
 }
+
 // relocateUnit updates spatial matrix references and executes corresponding trigger registrations for movement.
 func (a *Arena) relocateUnit(u *Unit, to HexCoord) (sts ApplyStates) {
 	a.Board.Cells[u.PosVal()].Unit = nil
