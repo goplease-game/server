@@ -43,7 +43,7 @@ jobs:
           username: ${{ secrets.DEPLOY_SSH_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           source: "bin/server"
-          target: "/opt/goplease/"
+          target: "/opt/game-server/"
           strip_components: 1
 
       - name: Restart service
@@ -53,6 +53,6 @@ jobs:
           username: ${{ secrets.DEPLOY_SSH_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            chmod +x /opt/goplease/server
-            sudo systemctl restart goplease
+            chmod +x /opt/game-server/server
+            sudo systemctl restart game-server
 
