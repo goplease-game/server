@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	game "github.com/goplease-game/game-server"
+	"github.com/goplease-game/game-server"
 	"github.com/goplease-game/game-server/config"
 	"github.com/goplease-game/game-server/ws"
 )
@@ -53,7 +53,7 @@ func main() {
 	addr := net.JoinHostPort(config.Host, config.Port)
 	server := &http.Server{
 		Addr:         addr,
-		Handler:      mux,
+		Handler:      withCORS(mux),
 		ReadTimeout:  config.RWTimeout,
 		WriteTimeout: config.RWTimeout,
 	}
@@ -86,4 +86,19 @@ func main() {
 
 		log.Println("[goplease] bye")
 	}
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

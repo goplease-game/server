@@ -19,8 +19,7 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:   1024,
 	WriteBufferSize:  1024,
 	HandshakeTimeout: 10 * time.Second,
-	// In production replace with an origin whitelist check.
-	CheckOrigin: func(*http.Request) bool { return true },
+	CheckOrigin:      func(*http.Request) bool { return true },
 }
 
 const (
